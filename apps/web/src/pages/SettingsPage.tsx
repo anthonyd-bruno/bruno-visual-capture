@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Settings, SystemStatus } from '@bruno-capture/shared';
-import { api } from '../api';
+import { api, type SecretsView } from '../api';
 
 const ICON: Record<string, string> = { ready: '✔', 'not-configured': '○', 'action-required': '!', unavailable: '✖', error: '✖' };
 
@@ -30,7 +30,9 @@ export function SystemStatusPanel({ status, onRecheck }: { status?: SystemStatus
 export function SettingsPage() {
   const [status, setStatus] = useState<SystemStatus>();
   const [settings, setSettings] = useState<Settings>();
-  const [secrets, setSecrets] = useState<{ openai: { keyPresent: boolean }; anthropic: { keyPresent: boolean } }>();
+  const [secrets, setSecrets] = useState<SecretsView>();
+  const [keyDraft, setKeyDraft] = useState<{ openai: string; anthropic: string }>({ openai: '', anthropic: '' });
+  const [testResult, setTestResult] = useState<Partial<Record<'openai' | 'anthropic', string>>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const load = () => { api.systemStatus().then(setStatus).catch((e) => setError(String(e.message))); api.settings().then((r) => { setSettings(r.settings); setSecrets(r.secrets); }).catch((e) => setError(String(e.message))); };
@@ -75,11 +77,29 @@ export function SettingsPage() {
           <select value={s.ai.preferredProvider} onChange={(e) => save({ ai: { preferredProvider: e.target.value as 'openai' | 'anthropic' } })}>
             <option value="anthropic">Anthropic</option><option value="openai">OpenAI</option>
           </select>
-          <label style={{ marginTop: 10 }}>Anthropic model <span className="badge">{secrets?.anthropic.keyPresent ? 'key present' : 'no key'}</span></label>
-          <input defaultValue={s.ai.anthropic.model} onBlur={(e) => save({ ai: { anthropic: { model: e.target.value } } })} />
-          <label style={{ marginTop: 10 }}>OpenAI model <span className="badge">{secrets?.openai.keyPresent ? 'key present' : 'no key'}</span></label>
-          <input defaultValue={s.ai.openai.model} placeholder="e.g. the current flagship" onBlur={(e) => save({ ai: { openai: { model: e.target.value } } })} />
-          <p className="muted">Keys are read from <code>ANTHROPIC_API_KEY</code> / <code>OPENAI_API_KEY</code> until Keychain storage lands (Phase 6).</p>
+          <label style={{ marginTop: 10 }}><input type="checkbox" style={{ width: 'auto', marginRight: 6 }} checked={s.ai.fallbackEnabled} onChange={(e) => save({ ai: { fallbackEnabled: e.target.checked } })} /> Fall back to the other provider on failure</label>
+          {(['anthropic', 'openai'] as const).map((p) => {
+            const sec = secrets?.[p];
+            return (
+              <div key={p} style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <strong>{p === 'anthropic' ? 'Anthropic' : 'OpenAI'}</strong>
+                  <span className="badge">{sec?.keyPresent ? `key in ${sec.source}` : 'no key'}</span>
+                </div>
+                <label style={{ marginTop: 8 }}>Model</label>
+                <input defaultValue={s.ai[p].model} placeholder={p === 'openai' ? 'e.g. the current flagship model id' : 'claude-opus-5'} onBlur={(e) => save({ ai: { [p]: { model: e.target.value } } })} />
+                <label style={{ marginTop: 8 }}>API key {sec?.source === 'env' && <span className="muted">(environment variable overrides Keychain)</span>}</label>
+                <div className="row">
+                  <input type="password" autoComplete="off" value={keyDraft[p]} onChange={(e) => setKeyDraft({ ...keyDraft, [p]: e.target.value })} placeholder={sec?.keyPresent ? '•••••••• (stored — enter a new key to replace)' : 'paste key — stored in macOS Keychain'} style={{ maxWidth: 360 }} />
+                  <button disabled={!keyDraft[p]} onClick={() => { api.setKey(p, keyDraft[p]).then(() => { setKeyDraft({ ...keyDraft, [p]: '' }); load(); }).catch((e) => setError(String(e.message))); }}>Save key</button>
+                  {sec?.source === 'keychain' && <button onClick={() => api.deleteKey(p).then(load).catch((e) => setError(String(e.message)))}>Remove</button>}
+                  <button onClick={() => { setTestResult({ ...testResult, [p]: 'testing…' }); api.testProvider(p).then((r) => setTestResult({ ...testResult, [p]: `${r.ok ? '✔' : '✖'} ${r.message}${r.latencyMs ? ` (${r.latencyMs} ms)` : ''}` })).catch((e) => setTestResult({ ...testResult, [p]: `✖ ${e.message}` })); }}>Test {p === 'anthropic' ? 'Anthropic' : 'OpenAI'}</button>
+                </div>
+                {testResult[p] && <div className="muted" style={{ marginTop: 6 }}>{testResult[p]}</div>}
+              </div>
+            );
+          })}
+          <p className="muted" style={{ marginTop: 10 }}>Keys are stored in the macOS Keychain and only ever used by the local backend; <code>ANTHROPIC_API_KEY</code> / <code>OPENAI_API_KEY</code> override them.</p>
         </div>
       </div>
       {saving && <p className="muted">Saving…</p>}

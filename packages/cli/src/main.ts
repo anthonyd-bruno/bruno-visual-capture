@@ -31,9 +31,11 @@ async function doctor(json: boolean): Promise<number> {
   const paths = appPaths();
   const settings = new SettingsStore(paths);
   await settings.load();
+  const { resolveApiKey } = await import('@bruno-capture/ai');
+  const [ok, ak] = await Promise.all([resolveApiKey('openai'), resolveApiKey('anthropic')]);
   const status = await checkSystemStatus({
     settings: settings.get(), paths,
-    aiKeys: { openai: Boolean(process.env.OPENAI_API_KEY), anthropic: Boolean(process.env.ANTHROPIC_API_KEY) },
+    aiKeys: { openai: Boolean(ok.key), anthropic: Boolean(ak.key) },
     screenRecording: async () => { const h = await CaptureHelper.locate(paths.binDir); if (!h) return 'helper-missing'; return (await h.preflight().catch(() => false)) ? 'granted' : 'denied'; },
   });
   if (json) { console.log(JSON.stringify(status, null, 2)); return 0; }

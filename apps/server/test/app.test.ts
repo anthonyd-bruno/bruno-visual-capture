@@ -38,7 +38,7 @@ describe('settings routes', () => {
     const r = await app.inject({ method: 'GET', url: '/api/settings', headers: H });
     expect(r.statusCode).toBe(200);
     const body = r.json();
-    expect(body.secrets).toEqual({ openai: { keyPresent: expect.any(Boolean) }, anthropic: { keyPresent: expect.any(Boolean) } });
+    expect(body.secrets).toEqual({ openai: { keyPresent: expect.any(Boolean), source: null }, anthropic: { keyPresent: expect.any(Boolean), source: null } });
     expect(JSON.stringify(body)).not.toMatch(/sk-[A-Za-z0-9]/);
   });
   it('validates PUT bodies with field paths and rejects unknown keys', async () => {

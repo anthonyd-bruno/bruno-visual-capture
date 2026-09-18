@@ -2,6 +2,7 @@ import {
   RunEngine, SettingsStore, WorkflowRegistry, WorkflowSourcesStore, WorkflowWatcher, appPaths, builtInWorkflowsDir, bundledFixturesDir, checkSystemStatus, resolveBruno, type AppPaths,
 } from '@bruno-capture/core';
 import { CaptureHelper, createDefaultActionRegistry } from '@bruno-capture/automation';
+import { Keychain, resolveApiKey } from '@bruno-capture/ai';
 import type { SystemStatus } from '@bruno-capture/shared';
 
 /** Everything routes need. One instance per server; the CLI builds the same thing (PRD §92). */
@@ -14,8 +15,8 @@ export interface ServerContext {
   engine: RunEngine;
   fixturesDir: string;
   systemStatus(): Promise<SystemStatus>;
-  /** Key presence only — env vars now, Keychain in Phase 6. Values never leave the backend. */
-  aiKeyPresence(): { openai: boolean; anthropic: boolean };
+  /** Key presence and source only (env var or Keychain). Values never leave the backend (PRD §12). */
+  aiKeyPresence(): Promise<{ openai: boolean; anthropic: boolean; sources: { openai: 'env' | 'keychain' | null; anthropic: 'env' | 'keychain' | null } }>;
   log(message: string): void;
   shutdown(): Promise<void>;
 }
@@ -39,11 +40,15 @@ export async function createContext(opts: CreateContextOptions = {}): Promise<Se
   }
   const indexed = await engine.indexArtifactRoot();
   log(`library: ${indexed} runs indexed from ${settings.artifactRoot()}`);
-  const aiKeyPresence = () => ({ openai: Boolean(process.env.OPENAI_API_KEY), anthropic: Boolean(process.env.ANTHROPIC_API_KEY) });
+  const keychain = new Keychain();
+  const aiKeyPresence = async () => {
+    const [o, a] = await Promise.all([resolveApiKey('openai', keychain), resolveApiKey('anthropic', keychain)]);
+    return { openai: Boolean(o.key), anthropic: Boolean(a.key), sources: { openai: o.source ?? null, anthropic: a.source ?? null } };
+  };
   return {
     paths, settings, sources, registry, watcher, engine, fixturesDir, aiKeyPresence, log,
-    systemStatus: () => checkSystemStatus({
-      settings: settings.get(), paths, aiKeys: aiKeyPresence(), workflowRegistry: registry.stats(),
+    systemStatus: async () => checkSystemStatus({
+      settings: settings.get(), paths, aiKeys: await aiKeyPresence(), workflowRegistry: registry.stats(),
       screenRecording: async () => { const h = await CaptureHelper.locate(paths.binDir); if (!h) return 'helper-missing'; return (await h.preflight().catch(() => false)) ? 'granted' : 'denied'; },
     }),
     shutdown: async () => { await watcher?.stop(); await engine.shutdown(); },

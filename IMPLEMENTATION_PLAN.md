@@ -514,7 +514,17 @@ Built and verified against Bruno 4.1.0 on this machine — see `docs/spike-resul
   Recording grant: Full App Window screenshots and video of Bruno's window alone, normalised to the
   preset's CSS pixels. **Phase 5 is complete.** Open follow-up: sign the helper with a Developer ID so
   the grant survives rebuilds (ad-hoc today).
-- **Phase 6** not started: AI providers/Keychain.
+- **Phase 6** implemented: `packages/ai` — `AIProvider` abstraction; Anthropic (`messages.parse` +
+  `zodOutputFormat`, effort low) and OpenAI (`responses.create` + `zodTextFormat`, validated locally)
+  planners over a flat, fully-required AI-facing plan schema mapped to the canonical `CapturePlan`;
+  the §15 validation pipeline in order; confidence bands; one repair on the same provider, then
+  fallback, never bouncing (§11), with fallback/repair recorded in the attribution; Keychain storage
+  through `security -i` (secret never on argv) with env-var override; `/api/plan`,
+  `/api/ai/:provider/test`, `PUT`/`DELETE /api/ai/:provider/key`; Capture prompt → plan card with
+  Generate / Edit (no second AI call) / Change Workflow and low-confidence suggestions; Settings key
+  entry + Test. 13 contract tests on recorded/fake providers (valid, invalid schema, unsupported
+  workflow, invalid parameter, malformed, repair, fallback, auth-no-bounce) — no live API calls in CI.
+  **Not yet exercised against a live provider** (no API key on this machine).
 - **Phase 7** partial: Library list/filters, download, delete, Regenerate Latest. Outstanding:
   Regenerate Exact from the snapshot, ZIP, Reveal in Finder, artifact detail metadata.
 

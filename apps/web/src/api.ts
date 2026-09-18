@@ -1,4 +1,4 @@
-import type { Capabilities, CreateRunRequestInput, RunEvent, RunManifest, Settings, SettingsPatch, SystemStatus, WorkflowSummary } from '@bruno-capture/shared';
+import type { AIAttribution, AIProviderId, Capabilities, CapturePlan, CapturePreset, ConfidenceBand, CreateRunRequestInput, OutputType, RunEvent, RunManifest, Settings, SettingsPatch, SystemStatus, WorkflowSummary } from '@bruno-capture/shared';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string, public readonly details?: unknown) { super(message); }
@@ -16,9 +16,18 @@ export interface WorkflowListItem {
   issues: Array<{ path: string; message: string }>; summary?: WorkflowSummary; loadedAt: string;
 }
 
+export type PlanResponse =
+  | { ok: true; plan: CapturePlan; band: ConfidenceBand; workflow: WorkflowSummary; preset: CapturePreset; parameters: Record<string, string | number | boolean>; attribution: AIAttribution; suggestions: WorkflowSummary[] }
+  | { ok: false; error: { code: string; message: string; hint?: string }; suggestions: WorkflowSummary[] };
+export type SecretsView = { openai: { keyPresent: boolean; source: 'env' | 'keychain' | null }; anthropic: { keyPresent: boolean; source: 'env' | 'keychain' | null } };
+
 export const api = {
   systemStatus: () => call<SystemStatus>('/api/system/status'),
-  settings: () => call<{ settings: Settings; secrets: { openai: { keyPresent: boolean }; anthropic: { keyPresent: boolean } }; paths: { root: string; artifactRoot: string } }>('/api/settings'),
+  settings: () => call<{ settings: Settings; secrets: SecretsView; paths: { root: string; artifactRoot: string } }>('/api/settings'),
+  plan: (prompt: string, output: OutputType | 'auto') => call<PlanResponse>('/api/plan', { method: 'POST', body: JSON.stringify({ prompt, output }) }),
+  testProvider: (p: AIProviderId) => call<{ ok: boolean; message: string; model: string; latencyMs?: number }>(`/api/ai/${p}/test`, { method: 'POST' }),
+  setKey: (p: AIProviderId, key: string) => call<{ keyPresent: boolean }>(`/api/ai/${p}/key`, { method: 'PUT', body: JSON.stringify({ key }) }),
+  deleteKey: (p: AIProviderId) => call<{ keyPresent: boolean }>(`/api/ai/${p}/key`, { method: 'DELETE' }),
   patchSettings: (patch: SettingsPatch) => call<{ settings: Settings }>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
   workflows: () => call<{ workflows: WorkflowListItem[]; refreshedAt: string }>('/api/workflows'),
   workflow: (id: string) => call<WorkflowListItem & { rawText: string }>(`/api/workflows/${encodeURIComponent(id)}`),

@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { ServerContext } from './context.js';
 import { registerErrorHandler } from './errors.js';
+import { registerAiRoutes } from './routes/ai.js';
 import { registerRunRoutes } from './routes/runs.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerSystemRoutes } from './routes/system.js';
@@ -21,6 +22,7 @@ export async function buildApp(ctx: ServerContext, opts: BuildAppOptions = {}): 
   registerSettingsRoutes(app, ctx);
   registerWorkflowRoutes(app, ctx);
   registerRunRoutes(app, ctx);
+  registerAiRoutes(app, ctx);
   app.addHook('onClose', async () => { await ctx.shutdown(); });
   return app;
 }

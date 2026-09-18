@@ -239,3 +239,19 @@ profile mode.
   desktop content (§49) — with the synthetic cursor in frame. Whole run 7.4 s including launch.
 - TCC attribution confirmed as predicted in S4: the grant attached to the host app that spawned node,
   not to the helper bundle. Ad-hoc signing means a changed helper binary needs re-approval.
+
+## Phase 6 — AI planning (built; live call pending a key)
+
+- Structured output uses each SDK's Zod helper (`@anthropic-ai/sdk/helpers/zod` `zodOutputFormat`,
+  `openai/helpers/zod` `zodTextFormat`); both are built on `zod/v4`, so the shared schemas feed them
+  directly. The AI-facing plan is flat with every field required (`parameters` as `{name,value}[]`)
+  because strict JSON schema rejects records/defaults; it is mapped to `CapturePlan` after validation.
+- Anthropic: `messages.parse` with `output_config: { format, effort: 'low' }`, `max_tokens: 4096`;
+  `parsed_output` first, text fallback second; `stop_reason === 'refusal'` surfaces as a provider error.
+  OpenAI: `responses.create` with `text.format`, `output_text` validated locally (robust across SDK versions).
+- Keychain: `security -i` reads `add-generic-password -U … -w '<key>'` from stdin so the key never
+  appears in `ps`; `find-generic-password -w` reads it back; env vars override.
+- Verified locally: 13 planner/validator contract tests; server routes degrade to manual suggestions
+  with no provider configured (`/api/plan` → `ok:false`, `provider_not_configured`, suggestions), and
+  the UI shows the remediation + "Likely workflows". A real provider round-trip needs an API key
+  (Settings › AI or `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`).

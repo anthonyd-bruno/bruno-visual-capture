@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Capabilities, OutputType, WorkflowSummary } from '@bruno-capture/shared';
-import { api, ApiError } from '../api';
+import { api, ApiError, type PlanResponse } from '../api';
 
 export function ParamForm({ wf, values, onChange }: { wf: WorkflowSummary; values: Record<string, string>; onChange: (v: Record<string, string>) => void }) {
   const entries = Object.entries(wf.parameters);
@@ -33,7 +33,23 @@ export function CapturePage({ initialWorkflow }: { initialWorkflow?: string }) {
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState<string | null>(null);
   const [relaunchNeeded, setRelaunchNeeded] = useState(false);
+  const [prompt, setPrompt] = useState('');
+  const [promptOutput, setPromptOutput] = useState<OutputType | 'auto'>('auto');
+  const [planning, setPlanning] = useState(false);
+  const [planRes, setPlanRes] = useState<PlanResponse>();
   useEffect(() => { api.capabilities().then(setCaps).catch((e) => setError(String(e.message))); }, []);
+
+  const runPlan = async () => {
+    setPlanning(true); setPlanRes(undefined); setError(undefined);
+    try { setPlanRes(await api.plan(prompt, promptOutput)); }
+    catch (e) { setError((e as ApiError).message); }
+    finally { setPlanning(false); }
+  };
+  /** "Edit": move the plan into the manual form so changes need no second AI request (PRD §7.4). */
+  const adoptPlan = (r: Extract<PlanResponse, { ok: true }>) => {
+    setWorkflowId(r.workflow.id); setOutput(r.plan.output); setPreset(r.plan.preset);
+    setParams(Object.fromEntries(Object.entries(r.parameters).map(([k, v]) => [k, String(v)])));
+  };
   const wf = useMemo(() => caps?.workflows.find((w) => w.id === workflowId), [caps, workflowId]);
   useEffect(() => { if (wf && !wf.supportedOutputs.includes(output)) setOutput(wf.supportedOutputs[0]!); }, [wf, output]);
   const presets = caps?.presets.filter((p) => p.outputs.includes(output)) ?? [];
@@ -57,8 +73,53 @@ export function CapturePage({ initialWorkflow }: { initialWorkflow?: string }) {
       <h1>Capture</h1>
       <div className="panel">
         <label>What do you want to create?</label>
-        <textarea placeholder="e.g. Create a GIF showing how to run a collection from the Bruno Runner" disabled />
-        <p className="muted">AI planning arrives in Phase 6. Choose a workflow manually below — this path never depends on AI (PRD §17).</p>
+        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="e.g. Create a GIF showing how to run a collection from the Bruno Runner" />
+        <div className="row" style={{ marginTop: 8 }}>
+          <select value={promptOutput} onChange={(e) => setPromptOutput(e.target.value as OutputType | 'auto')} style={{ maxWidth: 160 }}>
+            <option value="auto">Auto</option><option value="screenshot">Screenshot</option><option value="screenshots">Screenshots</option><option value="video">Video</option><option value="gif">GIF</option>
+          </select>
+          <button className="primary" disabled={planning || prompt.trim().length < 3} onClick={() => void runPlan()}>{planning ? 'Planning…' : 'Plan'}</button>
+          <span className="muted">The AI only picks from registered workflows; nothing runs until you press Generate.</span>
+        </div>
+        {planRes && !planRes.ok && (
+          <div className="error" style={{ marginTop: 10 }}>
+            <strong>{planRes.error.message}</strong>{planRes.error.hint && <div>{planRes.error.hint}</div>}
+            {planRes.suggestions.length > 0 && <div style={{ marginTop: 6 }}>Likely workflows: {planRes.suggestions.map((w) => <button key={w.id} style={{ marginRight: 6 }} onClick={() => { setWorkflowId(w.id); setParams({}); }}>{w.name}</button>)}</div>}
+          </div>
+        )}
+        {planRes && planRes.ok && (
+          <div className="panel" style={{ marginTop: 10, background: 'var(--bg)' }}>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <strong>Capture plan</strong>
+              <span>
+                <span className="badge">{planRes.band === 'ready' ? `confidence ${Math.round(planRes.plan.confidence * 100)}%` : planRes.band === 'review' ? `Review recommended · ${Math.round(planRes.plan.confidence * 100)}%` : `Low confidence · ${Math.round(planRes.plan.confidence * 100)}%`}</span>{' '}
+                <span className="badge">{planRes.attribution.provider} · {planRes.attribution.model}{planRes.attribution.fallbackOccurred ? ` · fell back from ${planRes.attribution.fallbackFrom}` : ''}{planRes.attribution.repaired ? ' · repaired' : ''}</span>
+              </span>
+            </div>
+            <table><tbody>
+              <tr><th>Feature</th><td>{planRes.workflow.feature}</td></tr>
+              <tr><th>Workflow</th><td>{planRes.workflow.name} <code>{planRes.workflow.id}</code></td></tr>
+              <tr><th>Output</th><td>{planRes.plan.output}</td></tr>
+              <tr><th>Preset</th><td>{planRes.preset.name} — {planRes.preset.height ? `${planRes.preset.width}×${planRes.preset.height}` : `${planRes.preset.width} px wide`}, {planRes.preset.theme}, cursor {planRes.preset.cursor}</td></tr>
+              <tr><th>Framing</th><td>{planRes.preset.framing}</td></tr>
+              <tr><th>Parameters</th><td>{Object.keys(planRes.parameters).length ? Object.entries(planRes.parameters).map(([k, v]) => `${k} = ${String(v)}`).join(', ') : 'defaults'}</td></tr>
+              <tr><th>Why</th><td className="muted">{planRes.plan.rationale}</td></tr>
+            </tbody></table>
+            {planRes.band === 'low' ? (
+              <div className="row" style={{ marginTop: 8 }}>
+                <span className="muted">Not confident enough to run. Pick one:</span>
+                {planRes.suggestions.map((w) => <button key={w.id} onClick={() => { setWorkflowId(w.id); setParams({}); }}>{w.name}</button>)}
+              </div>
+            ) : (
+              <div className="row" style={{ marginTop: 8 }}>
+                <button className="primary" disabled={busy} onClick={() => { adoptPlan(planRes); void api.createRun({ workflowId: planRes.workflow.id, output: planRes.plan.output, preset: planRes.plan.preset, parameters: Object.fromEntries(Object.entries(planRes.parameters).map(([k, v]) => [k, String(v)])), request: { prompt, plan: planRes.plan, ai: planRes.attribution } }).then((r) => { location.hash = `#/run/${r.run.runId}`; }).catch((e) => setError((e as ApiError).message)); }}>Generate</button>
+                <button onClick={() => adoptPlan(planRes)}>Edit</button>
+                <button onClick={() => { adoptPlan(planRes); setPlanRes(undefined); }}>Change Workflow</button>
+              </div>
+            )}
+          </div>
+        )}
+        <p className="muted" style={{ marginTop: 8 }}>Or choose a workflow manually below — that path never depends on AI (PRD §17).</p>
       </div>
       <div className="panel">
         <h2 style={{ marginTop: 0 }}>Manual capture</h2>
