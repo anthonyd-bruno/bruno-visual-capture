@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { ulid } from 'ulid';
 import { detectFFmpeg, encodeFramesToMp4, mp4ToGif, transcodeToMp4 } from '@bruno-capture/media';
@@ -249,7 +249,12 @@ export class RunEngine {
       rec.manifest.bruno = { executablePath: bruno.candidate.executablePath, version: bruno.candidate.version, mode: 'electron', profileMode };
 
       const collection = rec.staged?.collectionPath ? { name: rec.staged.collectionName ?? path.basename(rec.staged.collectionPath), path: rec.staged.collectionPath } : undefined;
-      const selectedEnvironment = typeof params['environment'] === 'string' ? params['environment'] : undefined;
+      let selectedEnvironment = typeof params['environment'] === 'string' ? params['environment'] : undefined;
+      if (!selectedEnvironment && rec.staged?.collectionPath) {
+        // A collection with exactly one environment gets it pre-selected so {{vars}} resolve without a UI step.
+        const envs = (await readdir(path.join(rec.staged.collectionPath, 'environments')).catch(() => [] as string[])).filter((f) => /\.ya?ml$/i.test(f));
+        if (envs.length === 1) { selectedEnvironment = envs[0]!.replace(/\.ya?ml$/i, ''); log(`pre-selecting the collection's only environment "${selectedEnvironment}"`); }
+      }
 
       if (profileMode === 'capture') {
         // A fresh, seeded profile per run: the collection path changes per run, so the previous session cannot be reused.

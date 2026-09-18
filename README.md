@@ -28,6 +28,11 @@ node packages/cli/bin/bru-capture.mjs workflows validate
 node packages/cli/bin/bru-capture.mjs run runner-collection-run --output screenshots --preset docs-screenshot
 ```
 
+Built-in workflows (`workflows/`): `runner-collection-run`, `request-send-response`, `environment-switch`,
+`timeline-request`, `openapi-sync` — each produces screenshots; all but Timeline also produce MP4/GIF.
+Full App Window framing needs the native helper: `pnpm helper:build -- --install`, then
+`bru-capture helper request` to grant Screen Recording.
+
 Set `BRU_CAPTURE_HOME` to use a different Application Support directory (defaults to
 `~/Library/Application Support/Bruno Capture`). Settings › Bruno › *Profile mode* = `capture` runs
 Bruno in an isolated, seeded profile and never touches your own Bruno; `user` (the PRD default) uses

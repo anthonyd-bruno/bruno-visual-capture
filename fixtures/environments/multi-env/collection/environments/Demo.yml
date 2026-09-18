@@ -1,0 +1,8 @@
+name: Demo
+variables:
+  - name: baseUrl
+    value: https://jsonplaceholder.typicode.com
+  - name: apiKey
+    value: demo-key-123
+  - name: region
+    value: eu-west-1

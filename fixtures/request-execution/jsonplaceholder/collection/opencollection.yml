@@ -1,0 +1,11 @@
+opencollection: 1.0.0
+
+info:
+  name: JSONPlaceholder
+  description: Demo collection for request-execution and timeline workflows.
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

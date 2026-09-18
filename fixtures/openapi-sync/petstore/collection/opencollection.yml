@@ -1,0 +1,11 @@
+opencollection: 1.0.0
+
+info:
+  name: Pets API
+  description: Deterministic demo collection used by the built-in Runner workflows.
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

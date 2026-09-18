@@ -11,6 +11,12 @@ export const STATES: Readonly<Record<string, StateCheck>> = {
   'request.open': { locator: '[data-testid="request-pane"]', visible: true },
   'response.received': { locator: '[data-testid="response-status-code"]', visible: true },
   'environment.editorOpen': { locator: '[data-testid="save-env"], [data-testid="env-var-name-input"]', visible: true },
+  'environment.selectorOpen': { locator: '[data-testid="env-list-item"], [data-testid="env-no-environment-item"]', visible: true },
+  'timeline.open': { locator: '[data-testid="timeline-container"]', visible: true },
+  'openapi.connectVisible': { describe: 'the OpenAPI connect screen is shown', predicate: async (page) => /Connect to OpenAPI Spec/.test(await page.evaluate(() => document.body.innerText)) },
+  'openapi.connected': { describe: 'a spec is linked to the collection', predicate: async (page) => /Linked Collection/.test(await page.evaluate(() => document.body.innerText)) },
+  'openapi.updatesPending': { describe: 'spec updates are pending', predicate: async (page) => /[1-9]\d* Spec Updates Pending/.test(await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' '))) },
+  'openapi.synced': { describe: 'collection is in sync with the spec', predicate: async (page) => /No updates from the spec|not been updated since the last sync/.test(await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' '))) },
   'mockServer.running': {
     describe: 'mock server status text says running',
     predicate: async (page) => /running/i.test((await page.locator('[data-testid="mock-server-status-text"]').first().innerText().catch(() => '')) ?? ''),

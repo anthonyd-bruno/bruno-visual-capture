@@ -115,3 +115,27 @@ Full details: `spike-results.md`.
 | `--user-data-dir=<dir>` (argv) | Electron moves `userData`/`sessionData` to `<dir>`; fresh profile created there (measured S6) | **Isolated capture profile (plan D4)** |
 | `DISABLE_SINGLE_INSTANCE=true` | skips `requestSingleInstanceLock()` | Only needed for two instances on one profile |
 | `BRUNO_DEV_PORT` | renderer dev-server port (default 3000) | Dev-build launches (PRD §21) |
+
+## Phase 8 audit (measured 2026-09-18)
+
+- **Pane tabs** carry derived ids `responsive-tab-<name>`: request editor `params, body, headers, auth,
+  vars, script, assert, tests, docs, file, settings, history`; response pane `response, headers,
+  timeline, tests`. Each tab also has a hidden, id-less measurement clone — filter for visible.
+  `responsive-tab-timeline` → `timeline-container`, `timeline-item`, `timeline-entry`,
+  `timeline-item-header` (click → `timeline-detail`), `timeline-status`, `timeline-url`, `timeline-badge-main`.
+- **Environment editor** (`configure-env`): `save-env`, `save-all-env`, `reset-env`, `env-var-row-<name>`,
+  `env-var-name-input`, `responsive-tab-variables`, `env-tab-count`, `env-rename-action`, `env-copy-action`,
+  `env-delete-action`, `dotenv-files-section`, `create-dotenv-file`. The environment trigger toggles
+  the dropdown, so `environment.select` only clicks it when the list is not already open.
+- **OpenAPI Sync** (`collection-actions-sync-openapi` → an "OpenAPI" collection tab, no test ids):
+  connect screen "Connect to OpenAPI Spec" with `URL`/`File` buttons, `Select File` (an HTML
+  `<input type="file">` → Playwright `filechooser`, no native dialog) and `Connect`. Linked dashboard:
+  "Linked Collection", `Check for updates`, `View spec`, `Review and Sync Collection`, tabs
+  `responsive-tab-overview` / `-collection-changes` / `-spec-updates`, summary tiles "<n> Total in
+  Collection / In Sync with Spec / Changed in Collection / Spec Updates Pending" (count precedes label).
+  Review is inline on Spec Updates: `Skip All` / `Accept All`, per-endpoint `Keep Current` / `Update` or
+  `Skip` / `Add`, then `Sync Collection` → confirm dialog `Confirm & Sync Collection`. After sync the tab
+  reads "No updates from the spec — The spec endpoints have not been updated since the last sync." and
+  new requests appear in the sidebar. Free tier shows "1 of 5 syncs used this month" — a fresh capture
+  profile per run resets this; `user` profile mode would consume the user's quota.
+- `dialog.showOpenDialog` patched from the main process was **not** invoked by any of these flows.

@@ -266,3 +266,25 @@ profile mode.
 - ZIPs are streamed with `yazl` (screenshots deflated, media stored) and always include `manifest.json`;
   selections are validated against the manifest's artifact paths. Reveal/Open use `/usr/bin/open`
   with paths confined to the run directory.
+
+## Phase 8 — workflow coverage (measured)
+
+| Workflow | Feature | Captures | Screenshots | Video / GIF |
+|---|---|---|---|---|
+| `runner-collection-run` | runner | collection-ready, runner-open, runner-complete | 4.4 s | MP4 1.6–2.3 s, GIF ✓ |
+| `request-send-response` | request-execution | request-selected, request-configured, response-displayed | 3.9 s | GIF 1.1 s ✓ |
+| `environment-switch` | environments | environment-selector, environment-selected, environment-variables | 4.3 s | GIF 2.0 s ✓ |
+| `timeline-request` | timeline | timeline-open, timeline-entry-detail | 4.2 s | (video-capable) |
+| `openapi-sync` | openapi-sync | openapi-connect, openapi-imported, openapi-changes-detected, openapi-synced | 6.4 s | MP4 7.3 s / 627 frames ✓ |
+
+= 5 feature areas, 15 screenshot states, 5 screenshot workflows, video/GIF verified on 4 (§90 asks 3+3+3).
+
+- Fixtures without an `environment` parameter left `{{baseUrl}}` unresolved (request.send timed out
+  with Bruno showing an error). The engine now pre-selects a collection's **only** environment via the
+  ui-state seed; `request.send` failures quote what the response pane shows.
+- New actions: `request.selectTab`, `response.selectTab`, `timeline.open`, `timeline.expandFirst`,
+  `environment.openSelector`, `modal.close`, `fixture.copyFile` (workspace-confined), `openapi.open`,
+  `openapi.connectFile`, `openapi.checkForUpdates`, `openapi.reviewAndSync`; new states
+  `timeline.open`, `environment.selectorOpen`, `openapi.{connectVisible,connected,updatesPending,synced}`.
+- Selector debt: zero `selectorAction` steps across all built-ins; the OpenAPI actions are the only
+  rung-3 (role/name) locators.

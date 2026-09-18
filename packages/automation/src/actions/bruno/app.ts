@@ -18,6 +18,20 @@ export const appSetGeometry = defineAction({
   },
 });
 
+export const modalClose = defineAction({
+  id: 'modal.close',
+  description: 'Close the topmost modal (close button if present, otherwise Escape).',
+  retryable: true, rung: 1,
+  params: z.object({}),
+  async execute(ctx) {
+    const close = ctx.page.locator('[data-testid="modal-close-button"]').last();
+    if (await close.isVisible().catch(() => false)) await ctx.cursor.click(close); else await ctx.page.keyboard.press('Escape');
+    try { await ctx.page.locator('[data-testid="simple-modal-overlay"], [data-testid="modal-close-button"]').first().waitFor({ state: 'hidden', timeout: ctx.timeoutMs }); }
+    catch (e) { throw new ActionError('modal.close', 'The modal did not close', undefined, e); }
+    ctx.log('modal closed');
+  },
+});
+
 export const themeSet = defineAction({
   id: 'theme.set',
   description: 'Set Bruno\'s theme via renderer localStorage + reload (D3).',

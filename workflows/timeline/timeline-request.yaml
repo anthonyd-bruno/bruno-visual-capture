@@ -1,0 +1,33 @@
+version: 1
+id: timeline-request
+name: Request Timeline
+description: Sends a request and opens the Timeline tab to show the recorded request/response activity.
+feature: timeline
+tags: [timeline, debugging]
+supportedOutputs: [screenshots, video]
+fixture:
+  source: bundled
+  path: request-execution/jsonplaceholder
+defaults:
+  preset: docs-screenshot
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: JSONPlaceholder }
+  - action: request.open
+    params: { name: Get user }
+  - startRecording: {}
+  - action: request.send
+  - waitFor:
+      state: response.received
+  - action: timeline.open
+  - pause: 600
+  - capture:
+      id: timeline-open
+      name: Timeline showing the request activity
+  - action: timeline.expandFirst
+  - pause: 500
+  - capture:
+      id: timeline-entry-detail
+      name: Timeline entry expanded
+  - stopRecording: {}

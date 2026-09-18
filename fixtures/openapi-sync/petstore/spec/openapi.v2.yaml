@@ -1,0 +1,45 @@
+openapi: 3.0.3
+info:
+  title: Bruno Capture Pets
+  version: 1.1.0
+  description: Tiny spec used by the OpenAPI Sync workflows — v2 adds an endpoint and changes one.
+servers:
+  - url: https://jsonplaceholder.typicode.com
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      summary: List users
+      responses:
+        '200':
+          description: OK
+  /users/{id}:
+    get:
+      operationId: getUser
+      summary: Get a user by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: expand
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+  /albums:
+    get:
+      operationId: listAlbums
+      summary: List albums
+      responses:
+        '200':
+          description: OK
+  /posts:
+    get:
+      operationId: listPosts
+      summary: List posts
+      responses:
+        '200':
+          description: OK

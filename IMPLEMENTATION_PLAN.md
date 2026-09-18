@@ -525,6 +525,13 @@ Built and verified against Bruno 4.1.0 on this machine — see `docs/spike-resul
   entry + Test. 13 contract tests on recorded/fake providers (valid, invalid schema, unsupported
   workflow, invalid parameter, malformed, repair, fallback, auth-no-bounce) — no live API calls in CI.
   **Not yet exercised against a live provider** (no API key on this machine).
+- **Phase 8** complete: five built-in workflows over five feature areas (Runner, Request Execution,
+  Environments, Timeline, OpenAPI Sync) with bundled fixtures, 15 screenshot states, video/GIF
+  verified on four of them (see `docs/spike-results.md` for timings). OpenAPI Sync is fully automated
+  end to end — connect (file chooser), change detection (spec swap + Check for updates), Accept All →
+  Sync Collection → Confirm — with no upstream Bruno changes (D11 rungs 1–3 + 5; zero `selectorAction`
+  debt). Outstanding across the MVP: a live AI provider round-trip (needs a key), a live test of the
+  user-profile relaunch flow (§22), and the Developer-ID signing of the helper.
 - **Phase 7** complete: Library (newest first; feature / workflow / output filters), single downloads,
   Copy, ZIP of all or selected artifacts with the manifest included (§74), Open File and Reveal in
   Finder (§78), delete with confirmation, the §78 detail table, **Regenerate Exact** from the run's

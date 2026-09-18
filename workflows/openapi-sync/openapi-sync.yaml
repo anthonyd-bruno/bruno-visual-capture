@@ -1,0 +1,42 @@
+version: 1
+id: openapi-sync
+name: Sync a Collection from OpenAPI
+description: Connects a collection to a local OpenAPI spec, changes the spec, detects the updates and syncs the collection.
+feature: openapi-sync
+tags: [openapi, sync, spec]
+supportedOutputs: [screenshots, video, gif]
+fixture:
+  source: bundled
+  path: openapi-sync/petstore
+defaults:
+  preset: docs-screenshot
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: Pets API }
+  - action: openapi.open
+  - waitFor:
+      state: openapi.connectVisible
+  - capture:
+      id: openapi-connect
+      name: Connect a collection to an OpenAPI spec
+  - startRecording: {}
+  - action: openapi.connectFile
+    params: { spec: spec/openapi.yaml }
+  - pause: 800
+  - capture:
+      id: openapi-imported
+      name: Spec linked to the collection
+  - action: fixture.copyFile
+    params: { from: spec/openapi.v2.yaml, to: spec/openapi.yaml }
+  - action: openapi.checkForUpdates
+  - pause: 800
+  - capture:
+      id: openapi-changes-detected
+      name: Spec changes detected
+  - action: openapi.reviewAndSync
+  - pause: 800
+  - capture:
+      id: openapi-synced
+      name: Collection synced with the spec
+  - stopRecording: {}

@@ -32,7 +32,8 @@ export const requestSend = defineAction({
     try {
       await status.waitFor({ state: 'visible', timeout: p.timeoutMs ?? ctx.timeoutMs });
     } catch (e) {
-      throw new ActionError('request.send', 'No response arrived after sending the request', 'Check the request URL/environment and network access.', e);
+      const shown = (await ctx.page.locator('[data-testid="response-pane"]').innerText().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 160);
+      throw new ActionError('request.send', `No response arrived after sending the request${shown ? ` — Bruno shows: "${shown}"` : ''}`, 'Check the request URL, that an environment is selected so {{variables}} resolve, and network access.', e);
     }
     ctx.log(`response ${(await status.innerText().catch(() => '?')).trim()}`);
   },

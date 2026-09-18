@@ -1,0 +1,45 @@
+version: 1
+id: environment-switch
+name: Switch Environments
+description: Opens the environment selector, switches environment, and shows the environment variables editor.
+feature: environments
+tags: [environments, variables]
+supportedOutputs: [screenshots, video, gif]
+parameters:
+  targetEnvironment:
+    type: select
+    label: Environment to switch to
+    options: [Staging, Demo]
+    default: Staging
+fixture:
+  source: bundled
+  path: environments/multi-env
+defaults:
+  preset: docs-screenshot
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: Orders API }
+  - action: request.open
+    params: { name: List orders }
+  - startRecording: {}
+  - action: environment.openSelector
+  - pause: 500
+  - capture:
+      id: environment-selector
+      name: Environment selector open
+  - action: environment.select
+    params: { name: "{{targetEnvironment}}" }
+  - pause: 500
+  - capture:
+      id: environment-selected
+      name: Environment selected
+  - action: environment.openEditor
+  - waitFor:
+      state: environment.editorOpen
+  - pause: 2400   # lets the "Environment changed" toast fade before the still
+  - capture:
+      id: environment-variables
+      name: Environment variables editor
+  - stopRecording: {}
+  - action: modal.close

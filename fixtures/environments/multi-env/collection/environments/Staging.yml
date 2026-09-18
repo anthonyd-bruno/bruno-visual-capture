@@ -1,0 +1,8 @@
+name: Staging
+variables:
+  - name: baseUrl
+    value: https://jsonplaceholder.typicode.com
+  - name: apiKey
+    value: staging-key-456
+  - name: region
+    value: us-east-1

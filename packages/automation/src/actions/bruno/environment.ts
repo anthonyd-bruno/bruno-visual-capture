@@ -13,8 +13,9 @@ export const environmentSelect = defineAction({
     const trigger = ctx.page.locator(TRIGGER).first();
     await expectVisible('environment.select', 'The environment selector', trigger, ctx.timeoutMs, 'Open a collection first.');
     if ((await trigger.innerText()).trim().includes(p.name)) { ctx.log(`environment "${p.name}" already selected`); return; }
-    await ctx.cursor.click(trigger);
     const item = ctx.page.locator('[data-testid="env-list-item"]', { hasText: p.name }).first();
+    const listOpen = await ctx.page.locator('[data-testid="env-list-item"], [data-testid="env-no-environment-item"]').first().isVisible().catch(() => false);
+    if (!listOpen) await ctx.cursor.click(trigger); // the trigger toggles; clicking it while open would close the list
     await expectVisible('environment.select', `Environment "${p.name}"`, item, ctx.timeoutMs, 'Check the environment name in the fixture\'s environments/ folder.');
     await ctx.cursor.click(item);
     try {
@@ -23,6 +24,20 @@ export const environmentSelect = defineAction({
       throw new ActionError('environment.select', `Environment selector did not switch to "${p.name}"`, undefined, e);
     }
     ctx.log(`environment "${p.name}" selected`);
+  },
+});
+
+export const environmentOpenSelector = defineAction({
+  id: 'environment.openSelector',
+  description: 'Open the environment dropdown (for capturing the selector state).',
+  retryable: true, rung: 1,
+  params: z.object({}),
+  async execute(ctx) {
+    const trigger = ctx.page.locator(TRIGGER).first();
+    await expectVisible('environment.openSelector', 'The environment selector', trigger, ctx.timeoutMs, 'Open a collection first.');
+    await ctx.cursor.click(trigger);
+    await expectVisible('environment.openSelector', 'The environment list', ctx.page.locator('[data-testid="env-list-item"], [data-testid="env-no-environment-item"]').first(), ctx.timeoutMs);
+    ctx.log('environment selector open');
   },
 });
 
