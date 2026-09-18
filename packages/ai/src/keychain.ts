@@ -3,7 +3,8 @@ import { promisify } from 'node:util';
 import type { AIProviderId } from '@bruno-capture/shared';
 
 const execFileP = promisify(execFile);
-export const KEYCHAIN_SERVICE = 'com.usebruno.capture';
+/** Overridable so test suites never read or write the user's real entries. */
+export const KEYCHAIN_SERVICE = process.env['BRU_CAPTURE_KEYCHAIN_SERVICE'] ?? 'com.usebruno.capture';
 const ENV_VAR: Record<AIProviderId, string> = { openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY' };
 
 /**

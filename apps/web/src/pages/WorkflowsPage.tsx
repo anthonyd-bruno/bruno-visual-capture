@@ -25,7 +25,7 @@ export function WorkflowsPage() {
       <div className="panel row">
         <input placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 260 }} />
         <button onClick={() => act(api.refreshWorkflows())}>Refresh Workflows</button>
-        <span className="muted">{items.length} files, {items.filter((w) => !w.valid).length} invalid</span>
+        <span className="muted">{items.length} files, {items.filter((w) => !w.valid).length} invalid, {items.filter((w) => w.source === 'generated').length} generated from prompts</span>
       </div>
       <div className="grid">
         {shown.map((w) => (
@@ -41,6 +41,7 @@ export function WorkflowsPage() {
               {w.valid && <a href={`#/capture?workflow=${w.id}`}><button className="primary">Run</button></a>}
               <button onClick={() => api.workflow(w.id ?? w.file).then(setOpen).catch((e) => setError(String(e.message)))}>View</button>
               {w.importId && <button onClick={() => act(api.removeImport(w.importId!))}>Remove Reference</button>}
+              {w.source === 'generated' && w.id && <button onClick={() => { if (confirm(`Delete generated workflow "${w.summary?.name ?? w.id}"?`)) act(api.deleteGenerated(w.id!)); }}>Delete</button>}
             </div>
             <div className="muted mono" style={{ marginTop: 6 }}>{w.file}</div>
           </div>

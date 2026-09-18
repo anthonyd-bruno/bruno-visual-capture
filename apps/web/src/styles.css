@@ -24,7 +24,7 @@ button:disabled { opacity: .5; cursor: default; }
 .status-list li { display: grid; grid-template-columns: 22px 170px 130px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); list-style: none; }
 .status-list ul { padding: 0; margin: 0; }
 .steps li { list-style: none; padding: 4px 0; display: flex; gap: 8px; } .steps ul { padding: 0; margin: 0; }
-.step-done { color: var(--ok); } .step-failed { color: var(--bad); } .step-active { font-weight: 600; }
+.step-done { color: var(--ok); } .step-failed { color: var(--bad); } .step-active { font-weight: 600; } .step-healed { color: var(--warn, #b7791f); }
 .preview { width: 100%; max-width: 900px; border: 1px solid var(--border); border-radius: 6px; background: #222; aspect-ratio: 16/10; object-fit: contain; }
 .artifact img, .artifact video { width: 100%; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
 .error { background: #fef2f2; border: 1px solid #fecaca; color: var(--bad); padding: 10px 12px; border-radius: 6px; white-space: pre-wrap; }

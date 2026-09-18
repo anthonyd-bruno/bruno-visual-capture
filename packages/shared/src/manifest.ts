@@ -9,11 +9,14 @@ export const StepRecordSchema = z.strictObject({
   index: z.number().int().nonnegative(),
   kind: z.string(),
   label: z.string(),
-  status: z.enum(['completed', 'failed', 'skipped']),
+  /** `healed`: the step failed and the self-healer replaced it with steps that then ran (Phase 9). */
+  status: z.enum(['completed', 'failed', 'skipped', 'healed']),
   startedAt: IsoDateTimeSchema.optional(),
   durationMs: z.number().int().nonnegative().optional(),
   retries: z.number().int().nonnegative().default(0),
   error: RunErrorSchema.optional(),
+  /** True for steps the self-healer inserted. */
+  inserted: z.boolean().optional(),
 });
 export type StepRecord = z.infer<typeof StepRecordSchema>;
 
@@ -55,5 +58,7 @@ export const RunManifestSchema = z.strictObject({
     intermediates: z.array(z.string()).default([]),
   }),
   regenerateOf: z.strictObject({ runId: RunIdSchema, mode: z.enum(['exact', 'latest']) }).optional(),
+  /** Phase 9 self-healing summary; `learned` = the generated workflow file was rewritten with the healed steps. */
+  healing: z.strictObject({ attempts: z.number().int().nonnegative(), healed: z.number().int().nonnegative(), learned: z.boolean() }).optional(),
 });
 export type RunManifest = z.infer<typeof RunManifestSchema>;

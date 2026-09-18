@@ -17,7 +17,8 @@ export type CursorMode = z.infer<typeof CursorModeSchema>;
 export const AIProviderIdSchema = z.enum(['openai', 'anthropic']);
 export type AIProviderId = z.infer<typeof AIProviderIdSchema>;
 
-export const WorkflowSourceKindSchema = z.enum(['built-in', 'custom-directory', 'imported']);
+/** `generated` = composed by the AI planner from a prompt and saved under the app's data dir (Phase 9). */
+export const WorkflowSourceKindSchema = z.enum(['built-in', 'generated', 'custom-directory', 'imported']);
 export type WorkflowSourceKind = z.infer<typeof WorkflowSourceKindSchema>;
 
 /** `runner-collection-run`, `docs-screenshot`, … */

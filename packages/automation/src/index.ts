@@ -6,3 +6,5 @@ export * from './recording/screencast.js';
 export * from './cursor/overlay.js';
 export * from './cursor/controller.js';
 export * from './native/helper.js';
+export * from './observe.js';
+export * from './bruno/testids.js';

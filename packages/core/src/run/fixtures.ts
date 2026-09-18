@@ -2,6 +2,7 @@ import { cp, mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { ResolvedParameters, WorkflowDefinition } from '@bruno-capture/shared';
+import { writeInlineCollection } from './inline-fixture.js';
 
 export interface StagedFixture {
   /** Directory Bruno-facing paths are resolved against. */
@@ -61,6 +62,13 @@ export async function stageFixture(def: WorkflowDefinition, opts: StageFixtureOp
     await cp(src, opts.targetDir, { recursive: true });
     const col = await findCollection(opts.targetDir);
     return { workspacePath: opts.targetDir, collectionPath: col?.path, collectionName: col?.name, temporary: !opts.refreshInPlace };
+  }
+
+  if (fx.source === 'inline') {
+    await rm(opts.targetDir, { recursive: true, force: true });
+    await mkdir(opts.targetDir, { recursive: true });
+    const col = await writeInlineCollection(path.join(opts.targetDir, 'collection'), fx.collection);
+    return { workspacePath: opts.targetDir, collectionPath: col.collectionPath, collectionName: col.name, temporary: !opts.refreshInPlace };
   }
 
   const value = opts.parameters[fx.parameter];

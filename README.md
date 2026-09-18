@@ -28,6 +28,29 @@ node packages/cli/bin/bru-capture.mjs workflows validate
 node packages/cli/bin/bru-capture.mjs run runner-collection-run --output screenshots --preset docs-screenshot
 ```
 
+## Any prompt → a workflow (Phase 9)
+
+The Capture page (and `bru-capture compose "<prompt>"`) sends the request to the configured AI provider together
+with the **composition vocabulary**: the registered semantic actions (with their parameter schemas), semantic
+states and regions, the bundled fixtures (collections, requests, environments), the registered workflows, and the
+`data-testid` values of the detected Bruno build. The planner answers with either
+
+- **reuse** — a registered workflow that already does what was asked (plus parameter values), or
+- **compose** — a brand-new step list over a bundled fixture, an *inline collection* it describes (written as
+  Bruno YAML at run time), or an empty workspace.
+
+Composed plans are validated locally (catalog ids, real action parameter schemas, the workflow schema, preset ×
+output) before anything can run. **Generate** saves the plan as a `generated` workflow under
+`~/Library/Application Support/Bruno Capture/workflows/generated/` (a normal YAML file: listed, watched,
+editable, regenerate-able, deletable) and runs it. While it runs, a failed step is **self-healed**: the live UI is
+observed (visible elements with their test ids, roles and text — never pixels or source) and the model returns
+replacement steps, bounded by *Settings › AI › Max repairs*. Successful heals are written back into the generated
+workflow so the next run needs no repair. Settings › AI has switches for composition and self-healing.
+
+```bash
+node packages/cli/bin/bru-capture.mjs compose "Show how to add a custom header to a request and send it" --output screenshots --run
+```
+
 Built-in workflows (`workflows/`): `runner-collection-run`, `request-send-response`, `environment-switch`,
 `timeline-request`, `openapi-sync` — each produces screenshots; all but Timeline also produce MP4/GIF.
 Full App Window framing needs the native helper: `pnpm helper:build -- --install`, then

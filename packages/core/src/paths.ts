@@ -10,6 +10,8 @@ export interface AppPaths {
   workflowSourcesFile: string;
   /** Default artifact root; `settings.capture.artifactRoot` may point elsewhere. */
   artifactsDir: string;
+  /** Phase 9: workflows the AI composed from prompts (source kind `generated`); editable YAML like any other. */
+  generatedWorkflowsDir: string;
   /** Seeded `ELECTRON_USER_DATA_PATH` for `profileMode: 'capture'` (D4). */
   profileDir: string;
   /** Copies of user Bruno files taken before we write them (risk register: seeding damage). */
@@ -26,6 +28,7 @@ export function appPaths(root = process.env.BRU_CAPTURE_HOME ?? DEFAULT_APP_SUPP
     settingsFile: path.join(root, 'settings.json'),
     workflowSourcesFile: path.join(root, 'workflow-sources.json'),
     artifactsDir: path.join(root, 'artifacts'),
+    generatedWorkflowsDir: path.join(root, 'workflows', 'generated'),
     profileDir: path.join(root, 'profile'),
     backupsDir: path.join(root, 'backups'),
     binDir: path.join(root, 'bin'),

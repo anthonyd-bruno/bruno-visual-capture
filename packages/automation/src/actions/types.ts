@@ -39,10 +39,16 @@ export function defineAction<P>(def: CaptureAction<P>): CaptureAction<P> {
 
 /** Answers PRD §94's three questions; the executor adds workflow/step/Bruno-version context. */
 export class ActionError extends Error {
-  readonly code = 'action_failed';
-  constructor(public readonly actionId: string, message: string, public readonly hint?: string, public override readonly cause?: unknown) {
+  /** `action_failed` (retryable once when the action allows it) or `target_not_found` (deterministic — never retried). */
+  readonly code: 'action_failed' | 'target_not_found';
+  constructor(public readonly actionId: string, message: string, public readonly hint?: string, public override readonly cause?: unknown, code: 'action_failed' | 'target_not_found' = 'action_failed') {
     super(message);
     this.name = 'ActionError';
+    this.code = code;
+  }
+  /** A locator matched nothing visible: retrying the same locator cannot help, but the self-healer can. */
+  static notFound(actionId: string, message: string, hint?: string, cause?: unknown): ActionError {
+    return new ActionError(actionId, message, hint, cause, 'target_not_found');
   }
 }
 

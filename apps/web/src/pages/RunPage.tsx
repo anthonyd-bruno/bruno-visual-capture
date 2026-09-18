@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Artifact, RunEvent, RunManifest, StepSummary } from '@bruno-capture/shared';
 import { api, regenerateAndGo, subscribeRun } from '../api';
 
-interface StepState { step: StepSummary; status: 'active' | 'done' | 'failed'; message?: string }
+interface StepState { step: StepSummary; status: 'active' | 'done' | 'failed' | 'healing' | 'healed'; message?: string; inserted?: boolean }
 
 export function ArtifactCard({ runId, a, selected, onSelect, onError }: { runId: string; a: Artifact; selected?: boolean; onSelect?: (v: boolean) => void; onError: (m: string) => void }) {
   const url = api.fileUrl(runId, a.relativePath);
@@ -43,6 +43,7 @@ function RunDetails({ run }: { run: RunManifest }) {
     ['Parameters', Object.keys(run.parameters).length ? Object.entries(run.parameters).map(([k, v]) => `${k} = ${String(v)}`).join(', ') : 'defaults'],
     ['Source', `${run.workflow.source} · ${run.workflow.sourcePath}`],
     ['Regenerated from', run.regenerateOf ? `${run.regenerateOf.runId} (${run.regenerateOf.mode})` : undefined],
+    ['Self-healing', run.healing ? `${run.healing.healed} of ${run.healing.attempts} repair(s) succeeded${run.healing.learned ? ' · workflow file updated with the healed steps' : ''}` : undefined],
     ['Errors', run.errors.length ? run.errors.map((e) => e.message).join('; ') : undefined],
   ];
   return <table><tbody>{rows.filter(([, v]) => v).map(([k, v]) => <tr key={k}><th style={{ width: 140 }}>{k}</th><td className={k === 'Source' || k === 'Bruno' ? 'mono' : ''}>{v}</td></tr>)}</tbody></table>;
@@ -70,6 +71,21 @@ export function RunPage({ runId }: { runId: string }) {
         case 'workflow.step.started': setSteps((s) => [...s.filter((x) => x.step.index !== e.step.index), { step: e.step, status: 'active' }]); break;
         case 'workflow.step.completed': setSteps((s) => s.map((x) => x.step.index === e.step.index ? { ...x, status: 'done' } : x)); break;
         case 'workflow.step.failed': setSteps((s) => s.map((x) => x.step.index === e.step.index ? { ...x, status: 'failed', message: e.error.message + (e.error.hint ? ` — ${e.error.hint}` : '') } : x)); break;
+        case 'workflow.healing': setSteps((s) => s.map((x) => x.step.index === e.step.index ? { ...x, status: 'healing', message: `${e.error.message} — asking the self-healer (${e.attempt}/${e.max})…` } : x)); break;
+        case 'workflow.healed': {
+          // The failed step is replaced in place: renumber what follows and insert the replacement steps as pending.
+          setTotal(e.total);
+          setSteps((s) => {
+            const shift = e.replacement.length - 1 - e.dropped;
+            const kept = s.filter((x) => x.step.index !== e.step.index && !(x.step.index > e.step.index && x.step.index <= e.step.index + e.dropped))
+              .map((x) => x.step.index > e.step.index ? { ...x, step: { ...x.step, index: x.step.index + shift } } : x);
+            const healed: StepState = { step: e.step, status: 'healed', message: `healed: ${e.rationale}` };
+            const inserted: StepState[] = e.replacement.map((r) => ({ step: r, status: 'active' as const, inserted: true }));
+            return [...kept, { ...healed, step: { ...healed.step, index: e.step.index - 0.5 } }, ...inserted];
+          });
+          break;
+        }
+        case 'workflow.heal.failed': setSteps((s) => s.map((x) => x.step.index === e.step.index ? { ...x, status: 'failed', message: `self-healer gave up: ${e.message}` } : x)); break;
         case 'preview.frame': if (live.current) setFrame(e.dataUrl); break;
         case 'artifact.created': setArtifacts((a) => [...a, e.artifact]); break;
         case 'run.failed': setFatal(e.error); break;
@@ -122,8 +138,8 @@ export function RunPage({ runId }: { runId: string }) {
         <div className="panel steps">
           <h2 style={{ marginTop: 0 }}>Steps</h2>
           <ul>{steps.sort((a, b) => a.step.index - b.step.index).map((s) => (
-            <li key={s.step.index} className={s.status === 'done' ? 'step-done' : s.status === 'failed' ? 'step-failed' : 'step-active'}>
-              <span>{s.status === 'done' ? '✔' : s.status === 'failed' ? '✖' : '▶'}</span><span>{s.step.index + 1}. {s.step.label}{s.message && <div className="muted">{s.message}</div>}</span>
+            <li key={s.step.index} className={s.status === 'done' ? 'step-done' : s.status === 'failed' ? 'step-failed' : s.status === 'healed' ? 'step-healed' : 'step-active'}>
+              <span>{s.status === 'done' ? '✔' : s.status === 'failed' ? '✖' : s.status === 'healed' ? '⟳' : s.status === 'healing' ? '…' : '▶'}</span><span>{Number.isInteger(s.step.index) ? `${s.step.index + 1}. ` : ''}{s.step.label}{s.inserted && <span className="badge" style={{ marginLeft: 6 }}>healed in</span>}{s.message && <div className="muted">{s.message}</div>}</span>
             </li>
           ))}</ul>
           {!terminal && artifacts.length > 0 && <p className="muted">{artifacts.length} artifact(s) so far</p>}

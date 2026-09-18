@@ -96,14 +96,28 @@ export function summarize(lw: LoadedWorkflow): WorkflowSummary | undefined {
     captureIds: d.steps.flatMap((s) => ('capture' in s ? [s.capture.id] : [])),
     hasRecordingBounds: d.steps.some((s) => 'startRecording' in s),
     source: lw.source, sourcePath: lw.sourcePath, valid: true, selectorDebt: selectorDebt(d),
+    steps: d.steps,
+    fixture: d.fixture?.source === 'inline' ? { source: 'inline', collection: { name: d.fixture.collection.name } } : d.fixture,
   };
 }
 
 export interface WorkflowRegistryOptions {
   builtInDir?: string;
+  /** Phase 9: AI-composed workflows (source kind `generated`). */
+  generatedDir?: string;
   fixturesDir?: string;
   sources: () => WorkflowSources;
   log?: (message: string) => void;
+}
+
+/** Phase 9: everything a composed workflow may reference beyond the registry (the server fills these). */
+export interface CapabilityExtras {
+  actions?: Capabilities['actions'];
+  regions?: Capabilities['regions'];
+  states?: Capabilities['states'];
+  fixtures?: Capabilities['fixtures'];
+  testIds?: string[];
+  brunoVersion?: string;
 }
 
 /**
@@ -117,10 +131,12 @@ export class WorkflowRegistry {
   private refreshedAt = '';
   private readonly builtInDir: string;
   private readonly fixturesDir: string;
+  readonly generatedDir?: string;
 
   constructor(private readonly opts: WorkflowRegistryOptions) {
     this.builtInDir = opts.builtInDir ?? builtInWorkflowsDir();
     this.fixturesDir = opts.fixturesDir ?? bundledFixturesDir();
+    this.generatedDir = opts.generatedDir;
   }
 
   async refresh(): Promise<RegistrySnapshot> {
@@ -128,6 +144,7 @@ export class WorkflowRegistry {
     const jobs: Array<Promise<LoadedWorkflow>> = [];
     const loadOpts = { fixturesDir: this.fixturesDir };
     for (const f of await listYamlFiles(this.builtInDir)) jobs.push(loadWorkflowFile(f, 'built-in', this.builtInDir, loadOpts));
+    if (this.generatedDir) for (const f of await listYamlFiles(this.generatedDir)) jobs.push(loadWorkflowFile(f, 'generated', this.generatedDir, loadOpts));
     for (const dir of sources.customDirectories) for (const f of await listYamlFiles(dir)) jobs.push(loadWorkflowFile(f, 'custom-directory', dir, loadOpts));
     for (const imp of sources.importedFiles) jobs.push(loadWorkflowFile(imp.path, 'imported', imp.path, loadOpts).then((lw) => ({ ...lw, importId: imp.id })));
     const loaded = await Promise.all(jobs);
@@ -159,7 +176,7 @@ export class WorkflowRegistry {
   stats(): { total: number; invalid: number } { const s = this.snapshot(); return { total: s.total, invalid: s.invalid }; }
 
   /** What the UI lists and the AI planner is told about (PRD §13, §84). */
-  capabilities(presets: readonly CapturePreset[]): Capabilities {
+  capabilities(presets: readonly CapturePreset[], extras: CapabilityExtras = {}): Capabilities {
     const workflows = this.summaries();
     const features = new Map<string, number>();
     for (const w of workflows) features.set(w.feature, (features.get(w.feature) ?? 0) + 1);
@@ -168,6 +185,8 @@ export class WorkflowRegistry {
       workflows,
       presets: [...presets],
       outputs: ['screenshot', 'screenshots', 'video', 'gif'],
+      actions: extras.actions ?? [], regions: extras.regions ?? [], states: extras.states ?? [], fixtures: extras.fixtures ?? [],
+      testIds: extras.testIds ?? [], bruno: { version: extras.brunoVersion },
     };
   }
 }

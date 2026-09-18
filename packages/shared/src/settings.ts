@@ -26,6 +26,11 @@ export const SettingsSchema = z.strictObject({
     fallbackEnabled: z.boolean().default(true),
     openai: z.strictObject({ model: z.string().default('') }).prefault({}),
     anthropic: z.strictObject({ model: z.string().default('claude-opus-5') }).prefault({}),
+    /** Phase 9: let the planner compose new workflows from registered actions instead of only picking one. */
+    compose: z.boolean().default(true),
+    /** Phase 9: when a step fails, observe the live UI and ask the model for replacement steps. */
+    selfHeal: z.boolean().default(true),
+    maxHeals: z.number().int().min(0).max(10).default(4),
   }).prefault({}),
   workflows: z.strictObject({
     watch: z.boolean().default(true),
@@ -55,6 +60,9 @@ export const SettingsPatchSchema = z.strictObject({
     fallbackEnabled: z.boolean().optional(),
     openai: z.strictObject({ model: z.string() }).partial().optional(),
     anthropic: z.strictObject({ model: z.string() }).partial().optional(),
+    compose: z.boolean().optional(),
+    selfHeal: z.boolean().optional(),
+    maxHeals: z.number().int().min(0).max(10).optional(),
   }).optional(),
   workflows: SettingsSchema.shape.workflows.unwrap().partial().optional(),
 });

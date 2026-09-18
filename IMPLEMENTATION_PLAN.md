@@ -445,6 +445,47 @@ phase, not last, and start from the S5 table rather than rediscovering the surfa
 
 ---
 
+### Phase 9 — Dynamic composition (added 2026-09-18, after the MVP)
+
+Anthony's direction after Phase 8: the product must take **any** natural-language prompt and turn it into
+app actions, not pick from a fixed set. This supersedes PRD §14's "AI may only choose a registered workflow".
+The safety property is kept in a different place: the AI may only *compose from registered vocabulary*
+(actions, states, regions, fixtures, measured test ids) and every plan is validated locally before it can run.
+
+- **Vocabulary** — `GET /api/capabilities` now also lists actions (id, description, JSON-schema params, rung),
+  states, regions, bundled fixtures (with their requests/environments), and the `data-testid` values scanned
+  from the detected Bruno's `app.asar` (fallback: the shipped 4.1.0 list). New measured domain actions
+  (S10): `request.create/setUrl/setMethod/setBody/setAuth/addHeader/addQueryParam/save/menuItem`,
+  `folder.create`, `collection.create/menuItem/openSettings`; generic `ui.click/hover/type/press/selectOption/
+  waitFor/waitForText/scrollIntoView` addressed by testId › role+name/text/label/placeholder › css (debt).
+- **Planner** — one structured call: `mode: reuse` (existing §15 validation) or `mode: compose` (flat step list +
+  fixture: bundled | inline collection as JSON | none). Anthropic rejected the first schema ("compiled grammar is
+  too large"), so the AI-facing shape is one flat step object with nullable fields and the inline collection is a
+  JSON string validated against `InlineCollectionSchema`. Validation: catalog ids → action params (real zod
+  schemas from the registry, string values coerced by declared type) → `WorkflowDefinitionSchema` → preset/output.
+  Same repair/fallback contract as Phase 6.
+- **Generated workflows** — composed definitions are saved to `<app support>/workflows/generated/<slug>-<6>.yaml`
+  (source kind `generated`, header comment with prompt + provider), registered, watched, editable, deletable,
+  and regenerate-able like any file. Inline fixtures are written as Bruno YAML at stage time
+  (`writeInlineCollection`, shapes measured in S10).
+- **Self-healing** — when a step fails, the executor observes the live UI (`observePage`: visible interactive
+  elements with handles, modal state, main text — never pixels or source), asks the model for replacement steps
+  (`HealRequest` → validated `Step[]` + `dropFollowing`), splices them into the step queue and continues;
+  bounded by `settings.ai.maxHeals`. Heals are recorded (`StepRecord.status: healed`, `inserted`, manifest
+  `healing`), the run snapshot is rewritten with the steps that actually ran, and a generated workflow file is
+  updated with the healed steps ("learned"). `target_not_found` failures skip the useless retry.
+- **Surfaces** — Capture page: composed-plan card (steps, fixture, confidence, YAML editor with server-side
+  validation, Generate / Save to Workflows); Run page shows healing in the step list; Workflows page lists and
+  deletes generated ones; Settings › AI: compose / self-heal / max repairs. CLI: `bru-capture compose "<prompt>"
+  [--output] [--save] [--run]`. API: `POST /api/plan` (kind reuse|compose), `POST /api/workflows/validate`,
+  `POST/PUT/DELETE /api/workflows/generated`.
+- **Verified live** (Bruno 4.1.0, capture profile, Anthropic claude-opus-5 via the user's Keychain key):
+  scripted-provider e2e compose → save → run → heal (wrong test id → `request.send`) → learned write-back;
+  real planner calls: "Create a GIF showing how to run a collection from the Bruno Runner" → reuse
+  `runner-collection-run`/gif (0.93); "Show how to add a bearer token to a request and send it" → reuse of the
+  generated bearer workflow (0.92) and a clean run; plus the two novel-prompt compositions recorded in
+  `docs/spike-results.md`. OpenAI could not be exercised (the key is quota-limited).
+
 ## 6. Cross-cutting
 
 **Security (§20).** Bind `127.0.0.1`; reject requests whose `Origin`/`Host` isn't the local UI;
@@ -539,6 +580,9 @@ Built and verified against Bruno 4.1.0 on this machine — see `docs/spike-resul
   invalid parameter, new required parameter, dropped output → Capture form prefilled with the saved
   values and the reasons). Both verified live: exact reproduced the first run byte-for-byte from its
   snapshot; latest completed against the current definition.
+
+- **Phase 9** (dynamic composition, post-MVP) implemented and verified live — see §5 Phase 9 for what it
+  is and `docs/spike-results.md` for the measured runs. 105 unit tests across 18 files.
 
 **Deviation to note:** in `profileMode: 'user'` the bundled fixture is copied to a stable
 `~/Library/Application Support/Bruno Capture/runtime-fixtures/<fixture>` (refreshed each run) rather

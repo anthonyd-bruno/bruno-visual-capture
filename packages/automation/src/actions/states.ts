@@ -17,6 +17,9 @@ export const STATES: Readonly<Record<string, StateCheck>> = {
   'openapi.connected': { describe: 'a spec is linked to the collection', predicate: async (page) => /Linked Collection/.test(await page.evaluate(() => document.body.innerText)) },
   'openapi.updatesPending': { describe: 'spec updates are pending', predicate: async (page) => /[1-9]\d* Spec Updates Pending/.test(await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' '))) },
   'openapi.synced': { describe: 'collection is in sync with the spec', predicate: async (page) => /No updates from the spec|not been updated since the last sync/.test(await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' '))) },
+  'modal.open': { locator: '[data-testid="simple-modal-overlay"], [class*="modal"] [data-testid="modal-close-button"]', visible: true },
+  'modal.closed': { locator: '[data-testid="simple-modal-overlay"], [class*="modal"] [data-testid="modal-close-button"]', visible: false },
+  'settings.open': { locator: '[data-testid="settings-tab-bar"]', visible: true },
   'mockServer.running': {
     describe: 'mock server status text says running',
     predicate: async (page) => /running/i.test((await page.locator('[data-testid="mock-server-status-text"]').first().innerText().catch(() => '')) ?? ''),

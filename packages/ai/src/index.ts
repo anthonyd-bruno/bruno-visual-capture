@@ -4,6 +4,11 @@ export * from './prompt.js';
 export * from './validate.js';
 export * from './keychain.js';
 export * from './planner.js';
+export * from './compose/schema.js';
+export * from './compose/catalog.js';
+export * from './compose/prompt.js';
+export * from './compose/validate.js';
+export * from './compose/heal.js';
 export { AnthropicProvider } from './anthropic.js';
 export { OpenAIProvider } from './openai.js';
 

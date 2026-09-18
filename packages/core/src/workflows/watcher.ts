@@ -7,6 +7,8 @@ export interface WorkflowWatcherOptions {
   registry: WorkflowRegistry;
   sources: () => WorkflowSources;
   builtInDir: string;
+  /** Phase 9: generated workflows directory (created lazily; watched once it exists). */
+  generatedDir?: string;
   debounceMs?: number;
   log?: (message: string) => void;
   onRefresh?: (snapshot: RegistrySnapshot, changedPaths: string[]) => void;
@@ -29,7 +31,7 @@ export class WorkflowWatcher {
 
   paths(): string[] {
     const s = this.opts.sources();
-    return [this.opts.builtInDir, ...s.customDirectories, ...s.importedFiles.map((f) => f.path)];
+    return [this.opts.builtInDir, ...(this.opts.generatedDir ? [this.opts.generatedDir] : []), ...s.customDirectories, ...s.importedFiles.map((f) => f.path)];
   }
 
   async start(): Promise<void> {

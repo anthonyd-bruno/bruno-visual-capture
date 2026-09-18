@@ -1,6 +1,7 @@
 import type { AIAttribution, AIProviderId, Capabilities, CapturePreset, OutputType, WorkflowSummary } from '@bruno-capture/shared';
 import { PlanValidationError, suggestWorkflows, validatePlan, type PlanIssue, type ValidatedPlan } from './validate.js';
-import { ProviderError, type AIProvider, type CapturePlanningRequest, type RawPlan } from './types.js';
+import { validateComposedPlan, type ComposeCatalog, type ValidatedComposedPlan } from './compose/validate.js';
+import { ProviderError, type AIProvider, type CapturePlanningRequest, type ComposeRequest } from './types.js';
 
 export interface PlanOutcome {
   ok: true;
@@ -16,6 +17,14 @@ export interface PlanFailure {
   suggestions: WorkflowSummary[];
   attempts: AttemptRecord[];
 }
+/** Phase 9: the compose planner's success carries either a reuse plan or a composed definition. */
+export interface ComposeOutcome {
+  ok: true;
+  result: ValidatedComposedPlan;
+  attribution: AIAttribution;
+  suggestions: WorkflowSummary[];
+  attempts: AttemptRecord[];
+}
 export interface AttemptRecord { provider: AIProviderId; model: string; stage: 'initial' | 'repair'; result: 'ok' | 'invalid' | 'error'; detail?: string; latencyMs: number }
 
 export interface PlannerOptions {
@@ -26,14 +35,48 @@ export interface PlannerOptions {
   log?: (m: string) => void;
 }
 
+type Attempt<V> = { kind: 'ok'; validated: V } | { kind: 'invalid'; issues: PlanIssue[]; raw?: unknown } | { kind: 'error'; error: ProviderError };
+
 /**
  * PRD §11: preferred provider → (invalid? one repair on the same provider) → fallback provider →
  * (one repair). Provider errors go straight to fallback; auth/not-configured errors do not bounce.
+ * The same contract drives both the pick-a-workflow planner and the Phase 9 composer.
  */
 export class CapturePlanner {
   constructor(private readonly opts: PlannerOptions) {}
 
   async plan(prompt: string, capabilities: Capabilities, preferredOutput: OutputType | 'auto' = 'auto', signal?: AbortSignal): Promise<PlanOutcome | PlanFailure> {
+    const r = await this.drive<ValidatedPlan, CapturePlanningRequest>(
+      prompt, capabilities,
+      (repair) => ({ prompt, capabilities, preferredOutput, repair }),
+      (p, req, s) => p.planCapture(req, s),
+      (raw) => validatePlan(raw, capabilities, this.opts.presets),
+      signal,
+    );
+    if (!r.ok) return r;
+    return { ok: true, validated: r.validated, attribution: r.attribution, suggestions: r.suggestions, attempts: r.attempts };
+  }
+
+  /** Phase 9: any prompt → reuse a registered workflow or compose one from the action catalog. */
+  async compose(prompt: string, catalog: ComposeCatalog, preferredOutput: OutputType | 'auto' = 'auto', signal?: AbortSignal): Promise<ComposeOutcome | PlanFailure> {
+    const r = await this.drive<ValidatedComposedPlan, ComposeRequest>(
+      prompt, catalog.capabilities,
+      (repair) => ({ prompt, capabilities: catalog.capabilities, preferredOutput, repair: repair as ComposeRequest['repair'] }),
+      (p, req, s) => p.composeWorkflow(req, s),
+      (raw) => validateComposedPlan(raw, { ...catalog, presets: catalog.presets ?? this.opts.presets }),
+      signal,
+    );
+    if (!r.ok) return r;
+    return { ok: true, result: r.validated, attribution: r.attribution, suggestions: r.suggestions, attempts: r.attempts };
+  }
+
+  private async drive<V, R>(
+    prompt: string, capabilities: Capabilities,
+    request: (repair?: { previous: unknown; issues: string[] }) => R,
+    call: (p: AIProvider, req: R, signal?: AbortSignal) => Promise<unknown>,
+    validate: (raw: unknown) => V,
+    signal?: AbortSignal,
+  ): Promise<{ ok: true; validated: V; attribution: AIAttribution; suggestions: WorkflowSummary[]; attempts: AttemptRecord[] } | PlanFailure> {
     const attempts: AttemptRecord[] = [];
     const order: AIProviderId[] = [this.opts.preferred];
     const other: AIProviderId = this.opts.preferred === 'openai' ? 'anthropic' : 'openai';
@@ -47,13 +90,13 @@ export class CapturePlanner {
         lastError = { code: 'provider_not_configured', message: `${id} is not configured`, hint: `Add an API key and model for ${id} in Settings › AI.` };
         continue;
       }
-      const base: CapturePlanningRequest = { prompt, capabilities, preferredOutput };
-      const res = await this.attempt(provider, base, 'initial', attempts, capabilities, signal);
-      if (res.kind === 'ok') return this.outcome(res.validated, id, i > 0 ? order[0]! : undefined, false, suggestions, attempts);
+      const outcome = (validated: V, repaired: boolean) => ({ ok: true as const, validated, attribution: { provider: id, model: provider.model, fallbackOccurred: i > 0, fallbackFrom: i > 0 ? order[0]! : undefined, repaired }, suggestions, attempts });
+      const res = await this.attempt(provider, request(), 'initial', attempts, call, validate, signal);
+      if (res.kind === 'ok') return outcome(res.validated, false);
       if (res.kind === 'invalid') {
-        const repaired = await this.attempt(provider, { ...base, repair: { previous: res.raw ?? '(unparseable)', issues: res.issues.map((x) => `${x.path ? x.path + ': ' : ''}${x.message}`) } }, 'repair', attempts, capabilities, signal);
-        if (repaired.kind === 'ok') return this.outcome(repaired.validated, id, i > 0 ? order[0]! : undefined, true, suggestions, attempts);
-        lastError = { code: 'plan_invalid', message: `The ${id} plan was invalid even after one repair attempt`, hint: 'Pick a workflow manually below.' };
+        const repaired = await this.attempt(provider, request({ previous: res.raw ?? '(unparseable)', issues: res.issues.map((x) => `${x.path ? x.path + ': ' : ''}${x.message}`) }), 'repair', attempts, call, validate, signal);
+        if (repaired.kind === 'ok') return outcome(repaired.validated, true);
+        lastError = { code: 'plan_invalid', message: `The ${id} plan was invalid even after one repair attempt`, hint: repaired.kind === 'invalid' ? repaired.issues.slice(0, 3).map((x) => x.message).join('; ') : 'Pick a workflow manually below.' };
         if (repaired.kind === 'error' && !repaired.error.fallbackWorthy) break;
         continue; // PRD §11.4: the other provider may be attempted
       }
@@ -63,17 +106,11 @@ export class CapturePlanner {
     return { ok: false, error: lastError ?? { code: 'no_provider', message: 'No AI provider is configured', hint: 'Add an API key in Settings › AI, or choose a workflow manually.' }, suggestions, attempts };
   }
 
-  private outcome(validated: ValidatedPlan, provider: AIProviderId, fallbackFrom: AIProviderId | undefined, repaired: boolean, suggestions: WorkflowSummary[], attempts: AttemptRecord[]): PlanOutcome {
-    const p = this.opts.providers[provider]!;
-    return { ok: true, validated, attribution: { provider, model: p.model, fallbackOccurred: Boolean(fallbackFrom), fallbackFrom, repaired }, suggestions, attempts };
-  }
-
-  private async attempt(provider: AIProvider, req: CapturePlanningRequest, stage: 'initial' | 'repair', attempts: AttemptRecord[], caps: Capabilities, signal?: AbortSignal):
-    Promise<{ kind: 'ok'; validated: ValidatedPlan } | { kind: 'invalid'; issues: PlanIssue[]; raw?: RawPlan } | { kind: 'error'; error: ProviderError }> {
+  private async attempt<V, R>(provider: AIProvider, req: R, stage: 'initial' | 'repair', attempts: AttemptRecord[], call: (p: AIProvider, req: R, signal?: AbortSignal) => Promise<unknown>, validate: (raw: unknown) => V, signal?: AbortSignal): Promise<Attempt<V>> {
     const t0 = Date.now();
-    let raw: RawPlan;
+    let raw: unknown;
     try {
-      raw = await provider.planCapture(req, signal);
+      raw = await call(provider, req, signal);
     } catch (e) {
       const err = e instanceof ProviderError ? e : new ProviderError(provider.id, 'provider', String((e as Error).message ?? e), e);
       attempts.push({ provider: provider.id, model: provider.model, stage, result: 'error', detail: `${err.kind}: ${err.message}`, latencyMs: Date.now() - t0 });
@@ -83,7 +120,7 @@ export class CapturePlanner {
       return { kind: 'error', error: err };
     }
     try {
-      const validated = validatePlan(raw, caps, this.opts.presets);
+      const validated = validate(raw);
       attempts.push({ provider: provider.id, model: provider.model, stage, result: 'ok', latencyMs: Date.now() - t0 });
       return { kind: 'ok', validated };
     } catch (e) {

@@ -1,4 +1,4 @@
-import type { AIAttribution, AIProviderId, Capabilities, CapturePlan, CapturePreset, ConfidenceBand, CreateRunRequestInput, OutputType, RunEvent, RunManifest, Settings, SettingsPatch, SystemStatus, WorkflowSummary } from '@bruno-capture/shared';
+import type { AIAttribution, AIProviderId, Capabilities, CapturePlan, CapturePreset, ConfidenceBand, CreateRunRequestInput, OutputType, RunEvent, RunManifest, Settings, SettingsPatch, SystemStatus, WorkflowDefinitionInput, WorkflowSummary } from '@bruno-capture/shared';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string, public readonly details?: unknown) { super(message); }
@@ -11,15 +11,24 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export type WorkflowSource = 'built-in' | 'generated' | 'custom-directory' | 'imported';
 export interface WorkflowListItem {
-  id?: string; file: string; source: 'built-in' | 'custom-directory' | 'imported'; sourcePath: string; importId?: string; valid: boolean;
+  id?: string; file: string; source: WorkflowSource; sourcePath: string; importId?: string; valid: boolean;
   issues: Array<{ path: string; message: string }>; summary?: WorkflowSummary; loadedAt: string;
 }
 
-export type PlanResponse =
-  | { ok: true; plan: CapturePlan; band: ConfidenceBand; workflow: WorkflowSummary; preset: CapturePreset; parameters: Record<string, string | number | boolean>; attribution: AIAttribution; suggestions: WorkflowSummary[] }
-  | { ok: false; error: { code: string; message: string; hint?: string }; suggestions: WorkflowSummary[] };
-export type RegenerateReview = { kind: 'review'; reason: string; issues: Array<{ path: string; message: string }>; prefill: { workflowId: string; output: OutputType; preset: string; parameters: Record<string, string | number | boolean>; overrides: Record<string, unknown> } };
+export type Issue = { path: string; message: string };
+export type PlanFailureResponse = { ok: false; error: { code: string; message: string; hint?: string }; suggestions: WorkflowSummary[] };
+export type ReusePlanResponse = { ok: true; kind: 'reuse'; plan: CapturePlan; band: ConfidenceBand; workflow: WorkflowSummary; preset: CapturePreset; parameters: Record<string, string | number | boolean>; attribution: AIAttribution; suggestions: WorkflowSummary[] };
+/** Phase 9: a freshly composed workflow — not saved until Generate/Save. */
+export type ComposePlanResponse = {
+  ok: true; kind: 'compose'; plan: CapturePlan; band: ConfidenceBand; confidence: number; rationale: string;
+  definition: WorkflowDefinitionInput; yaml: string; preset: CapturePreset; output: 'screenshots' | 'video' | 'gif';
+  captureIds: string[]; fixture: { source: string; path?: string; collection?: string; requests?: number; environments?: number };
+  stepCount: number; debt: number; primitives: number; attribution: AIAttribution; suggestions: WorkflowSummary[];
+};
+export type PlanResponse = ReusePlanResponse | ComposePlanResponse | PlanFailureResponse;
+export type RegenerateReview = { kind: 'review'; reason: string; issues: Issue[]; prefill: { workflowId: string; output: OutputType; preset: string; parameters: Record<string, string | number | boolean>; overrides: Record<string, unknown> } };
 export type RegenerateResponse = { run: RunManifest; review?: undefined } | { review: RegenerateReview; run?: undefined };
 
 /** Regenerate from anywhere: start the run, or hand the review to the Capture form (PRD §71). */
@@ -37,7 +46,7 @@ export type SecretsView = { openai: { keyPresent: boolean; source: 'env' | 'keyc
 export const api = {
   systemStatus: () => call<SystemStatus>('/api/system/status'),
   settings: () => call<{ settings: Settings; secrets: SecretsView; paths: { root: string; artifactRoot: string } }>('/api/settings'),
-  plan: (prompt: string, output: OutputType | 'auto') => call<PlanResponse>('/api/plan', { method: 'POST', body: JSON.stringify({ prompt, output }) }),
+  plan: (prompt: string, output: OutputType | 'auto', mode: 'auto' | 'pick' | 'compose' = 'auto') => call<PlanResponse>('/api/plan', { method: 'POST', body: JSON.stringify({ prompt, output, mode }) }),
   testProvider: (p: AIProviderId) => call<{ ok: boolean; message: string; model: string; latencyMs?: number }>(`/api/ai/${p}/test`, { method: 'POST' }),
   setKey: (p: AIProviderId, key: string) => call<{ keyPresent: boolean }>(`/api/ai/${p}/key`, { method: 'PUT', body: JSON.stringify({ key }) }),
   deleteKey: (p: AIProviderId) => call<{ keyPresent: boolean }>(`/api/ai/${p}/key`, { method: 'DELETE' }),
@@ -45,10 +54,15 @@ export const api = {
   workflows: () => call<{ workflows: WorkflowListItem[]; refreshedAt: string }>('/api/workflows'),
   workflow: (id: string) => call<WorkflowListItem & { rawText: string }>(`/api/workflows/${encodeURIComponent(id)}`),
   refreshWorkflows: () => call<{ total: number; invalid: number }>('/api/workflows/refresh', { method: 'POST' }),
-  importWorkflow: (path: string) => call<{ importId: string; valid: boolean; issues: Array<{ path: string; message: string }> }>('/api/workflows/import', { method: 'POST', body: JSON.stringify({ path }) }),
+  importWorkflow: (path: string) => call<{ importId: string; valid: boolean; issues: Issue[] }>('/api/workflows/import', { method: 'POST', body: JSON.stringify({ path }) }),
   removeImport: (id: string) => call<{ removed: string }>(`/api/workflows/import/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   addDirectory: (path: string) => call<{ directories: string[] }>('/api/workflows/directories', { method: 'POST', body: JSON.stringify({ path }) }),
   removeDirectory: (path: string) => call<{ directories: string[] }>('/api/workflows/directories', { method: 'DELETE', body: JSON.stringify({ path }) }),
+  /** Phase 9 */
+  validateWorkflow: (yaml: string) => call<{ valid: boolean; issues: Issue[]; captureIds?: string[]; stepCount?: number; yaml?: string }>('/api/workflows/validate', { method: 'POST', body: JSON.stringify({ yaml }) }),
+  saveGenerated: (body: { yaml: string; prompt?: string; provider?: string; model?: string }) => call<{ id: string; file: string; valid: boolean; issues: Issue[] }>('/api/workflows/generated', { method: 'POST', body: JSON.stringify(body) }),
+  updateGenerated: (id: string, yaml: string) => call<{ id: string; valid: boolean; issues: Issue[] }>(`/api/workflows/generated/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ yaml }) }),
+  deleteGenerated: (id: string) => call<{ removed: string | null }>(`/api/workflows/generated/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   capabilities: () => call<Capabilities>('/api/capabilities'),
   runs: () => call<{ runs: RunManifest[]; activeRunId: string | null }>('/api/runs'),
   run: (id: string) => call<{ run: RunManifest; active: boolean }>(`/api/runs/${id}`),
@@ -65,7 +79,7 @@ export const api = {
 /** SSE subscription (PRD §66). Returns an unsubscribe function. */
 export function subscribeRun(runId: string, onEvent: (e: RunEvent) => void, onEnd?: () => void): () => void {
   const es = new EventSource(`/api/runs/${runId}/events`);
-  const types: RunEvent['type'][] = ['run.status', 'workflow.started', 'workflow.step.started', 'workflow.step.completed', 'workflow.step.failed', 'preview.frame', 'artifact.created', 'recording.started', 'recording.stopped', 'processing.started', 'processing.completed', 'run.completed', 'run.failed', 'run.cancelled', 'run.log'];
+  const types: RunEvent['type'][] = ['run.status', 'workflow.started', 'workflow.step.started', 'workflow.step.completed', 'workflow.step.failed', 'workflow.healing', 'workflow.healed', 'workflow.heal.failed', 'preview.frame', 'artifact.created', 'recording.started', 'recording.stopped', 'processing.started', 'processing.completed', 'run.completed', 'run.failed', 'run.cancelled', 'run.log'];
   for (const t of types) es.addEventListener(t, (ev) => onEvent(JSON.parse((ev as MessageEvent).data) as RunEvent));
   es.onerror = () => { es.close(); onEnd?.(); };
   return () => es.close();

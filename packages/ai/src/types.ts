@@ -1,4 +1,6 @@
 import type { AIProviderId, Capabilities, OutputType } from '@bruno-capture/shared';
+import type { HealPromptRequest, ComposeRequest } from './compose/prompt.js';
+import type { RawComposedPlan, RawHeal } from './compose/schema.js';
 
 export type ProviderErrorKind = 'auth' | 'network' | 'timeout' | 'quota' | 'provider' | 'malformed' | 'not-configured';
 
@@ -12,7 +14,7 @@ export class ProviderError extends Error {
   get fallbackWorthy(): boolean { return this.kind === 'network' || this.kind === 'timeout' || this.kind === 'quota' || this.kind === 'provider'; }
 }
 
-/** What the model returns — flat and fully required so both providers' strict JSON schemas accept it. */
+/** What the model returns for the original pick-a-workflow planner — flat and fully required. */
 export interface RawPlan {
   type: 'capture' | 'workflow';
   workflowId: string;
@@ -24,7 +26,7 @@ export interface RawPlan {
 }
 
 export interface RepairContext {
-  previous: RawPlan | string;
+  previous: unknown;
   issues: string[];
 }
 
@@ -48,6 +50,12 @@ export interface ProviderStatus {
 export interface AIProvider {
   readonly id: AIProviderId;
   readonly model: string;
+  /** Phase 6: pick a registered workflow. */
   planCapture(request: CapturePlanningRequest, signal?: AbortSignal): Promise<RawPlan>;
+  /** Phase 9: reuse or compose a workflow from the action catalog. */
+  composeWorkflow(request: ComposeRequest, signal?: AbortSignal): Promise<RawComposedPlan>;
+  /** Phase 9: replacement steps for a failed step, from a live UI observation. */
+  healStep(request: HealPromptRequest, signal?: AbortSignal): Promise<RawHeal>;
   testConnection(signal?: AbortSignal): Promise<ProviderStatus>;
 }
+export type { ComposeRequest, HealPromptRequest, RawComposedPlan, RawHeal };

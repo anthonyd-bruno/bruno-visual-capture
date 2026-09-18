@@ -1,5 +1,6 @@
 export * from './common.js';
 export * from './parameters.js';
+export * from './fixture-inline.js';
 export * from './workflow.js';
 export * from './presets.js';
 export * from './plan.js';
@@ -8,3 +9,5 @@ export * from './manifest.js';
 export * from './settings.js';
 export * from './system.js';
 export * from './capabilities.js';
+export * from './observation.js';
+export * from './heal.js';

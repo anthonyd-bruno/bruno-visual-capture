@@ -288,3 +288,20 @@ profile mode.
   `timeline.open`, `environment.selectorOpen`, `openapi.{connectVisible,connected,updatesPending,synced}`.
 - Selector debt: zero `selectorAction` steps across all built-ins; the OpenAPI actions are the only
   rung-3 (role/name) locators.
+
+## Phase 9 — dynamic composition (measured 2026-09-18, Bruno 4.1.0, capture profile, Anthropic claude-opus-5)
+
+| Prompt | Planner decision | Result |
+|---|---|---|
+| *(scripted provider)* bearer token + deliberately wrong `ui.click testId=send-request-button` | compose, inline fixture, 10 steps | run **completed** after 1 self-heal (`ui.click` → `request.send`), 2 PNGs; generated YAML rewritten with the healed steps |
+| Create a GIF showing how to run a collection from the Bruno Runner (PRD §104) | **reuse** `runner-collection-run` → gif / docs-gif, confidence 0.93, ~3 s | — (plan only) |
+| Show how to add a bearer token to a request and send it | **reuse** of the generated bearer workflow above, 0.92 | run completed, 2 PNGs, 4.9 s |
+| Show how to add a custom X-Trace-Id header to a request, save it and send it | **compose**, bundled `request-execution/jsonplaceholder`, 14 steps (`request.selectTab headers` → `request.addHeader` → `waitFor text` → `request.save` → `request.send`), 2 region captures + 2 app captures; plan call ≈ 25 s | run **completed first time**, 4 PNGs, 4.3 s |
+| Create a GIF of creating a new collection named Weather API and adding a GET request called Current weather to it | **compose**, `fixtureKind: none`, 12 steps (`collection.create` → `request.create` …), docs-gif | `collection.create` worked; `request.create` failed on a **modal-scoping bug of ours** (`.last()` picked the modal footer); 3 heals all used `ui.type … text=…` where `text` collided with the target's text filter → run failed after 63 s. Both bugs fixed (`.first()`, `ui.type.value`); see the re-run row below |
+
+| *(re-run of the saved generated workflow above, no new plan call)* `bru-capture run create-a-collection-and-add-a-request-c03fe9 --output gif` | — | run **completed**: `collection.create` 0.3 s, `request.create` 2.4 s, GIF 6.0 s / 441 frames → 1000×626, 3 artifacts, no heal needed |
+
+Heal round-trips cost 4–8 s each (Anthropic, medium effort). Schema note: the first composition schema (8-variant
+step union + nested inline collection) was rejected by Anthropic with "The compiled grammar is too large"; the
+flat step object + inline-collection-as-JSON shape (3.5 KB JSON schema) compiles. OpenAI (`gpt-6-astra`) could not
+be exercised: the stored key is rate-limited/quota-exceeded (`429`).

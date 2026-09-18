@@ -15,6 +15,7 @@ const caps: Capabilities = {
   }],
   presets: [...BUILT_IN_PRESETS],
   outputs: ['screenshot', 'screenshots', 'video', 'gif'],
+  actions: [], regions: [], states: [], fixtures: [], testIds: [], bruno: {},
 };
 const good: RawPlan = { type: 'workflow', workflowId: 'runner-collection-run', output: 'gif', preset: 'docs-gif', parameters: [{ name: 'environment', value: 'Demo' }], confidence: 0.93, rationale: 'Runner GIF.' };
 
@@ -29,6 +30,8 @@ function fake(id: 'openai' | 'anthropic', script: Array<RawPlan | Error | string
       if (typeof step === 'string') throw new ProviderError(id, 'malformed', step);
       return step;
     },
+    async composeWorkflow() { throw new ProviderError(id, 'provider', 'not used here'); },
+    async healStep() { throw new ProviderError(id, 'provider', 'not used here'); },
     async testConnection() { return { ok: true, provider: id, model: `${id}-model`, message: 'ok' }; },
   };
   return p;

@@ -8,12 +8,16 @@ import { requestSelectTab, responseSelectTab, timelineExpandFirst, timelineOpen 
 import { requestOpen, requestSend } from './bruno/request.js';
 import { runnerOpen, runnerRunCollection, runnerWaitComplete } from './bruno/runner.js';
 import { workspaceOpen } from './bruno/workspace.js';
+import { AUTHORING_ACTIONS } from './bruno/authoring.js';
+import { UI_ACTIONS } from './bruno/ui.js';
 import type { CaptureAction } from './types.js';
 
 export * from './types.js';
 export * from './regions.js';
 export * from './states.js';
 export * from './registry.js';
+export * from './catalog.js';
+export { UiTargetSchema, describeTarget, resolveUiTarget, type UiTarget } from './bruno/ui.js';
 
 const all = [
   appSetGeometry, themeSet, workspaceOpen, collectionOpen,
@@ -23,6 +27,8 @@ const all = [
   environmentSelect, environmentOpenSelector, environmentOpenEditor,
   openapiOpen, openapiConnectFile, openapiCheckForUpdates, openapiReviewAndSync,
   fixtureCopyFile, modalClose,
+  ...AUTHORING_ACTIONS,
+  ...UI_ACTIONS,
 ] as unknown as Array<CaptureAction<unknown>>;
 
 export function createDefaultActionRegistry(): ActionRegistry {

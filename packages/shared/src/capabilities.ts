@@ -21,15 +21,55 @@ export const WorkflowSummarySchema = z.strictObject({
   valid: z.boolean(),
   /** Number of §38 escape-hatch steps. */
   selectorDebt: z.number().int().nonnegative(),
+  /** Phase 9: the step list in compact form, so the planner can adapt existing workflows. */
+  steps: z.array(z.unknown()).optional(),
+  fixture: z.unknown().optional(),
 });
 export type WorkflowSummary = z.infer<typeof WorkflowSummarySchema>;
 
 export const FeatureSummarySchema = z.strictObject({ id: SlugSchema, name: z.string(), workflowCount: z.number().int().nonnegative() });
+
+/** Phase 9: one registered semantic action as the planner sees it — id, purpose, JSON-schema params. No selectors. */
+export const ActionSummarySchema = z.strictObject({
+  id: z.string(),
+  description: z.string(),
+  /** JSON Schema (draft 2020-12) of the params object. */
+  params: z.record(z.string(), z.unknown()),
+  retryable: z.boolean(),
+  /** D11 locator ladder rung: 1 = test id … 6 = raw CSS. */
+  rung: z.number().int().min(1).max(6),
+});
+export type ActionSummary = z.infer<typeof ActionSummarySchema>;
+
+export const RegionSummarySchema = z.strictObject({ id: z.string(), description: z.string() });
+export const StateSummarySchema = z.strictObject({ id: z.string(), description: z.string() });
+
+/** Phase 9: a bundled fixture's contents, so the planner can pick one that already has what a prompt needs. */
+export const FixtureSummarySchema = z.strictObject({
+  path: z.string(),
+  description: z.string(),
+  collection: z.strictObject({
+    name: z.string(),
+    requests: z.array(z.strictObject({ name: z.string(), method: z.string(), url: z.string() })),
+    environments: z.array(z.strictObject({ name: z.string(), variables: z.array(z.string()) })),
+  }).optional(),
+  /** Other files (relative to the fixture), e.g. spec/openapi.yaml. */
+  files: z.array(z.string()),
+});
+export type FixtureSummary = z.infer<typeof FixtureSummarySchema>;
 
 export const CapabilitiesSchema = z.strictObject({
   features: z.array(FeatureSummarySchema),
   workflows: z.array(WorkflowSummarySchema),
   presets: z.array(CapturePresetSchema),
   outputs: z.array(OutputTypeSchema),
+  /** Phase 9 composition vocabulary. Empty arrays when the server was built without them (older clients). */
+  actions: z.array(ActionSummarySchema).default([]),
+  regions: z.array(RegionSummarySchema).default([]),
+  states: z.array(StateSummarySchema).default([]),
+  fixtures: z.array(FixtureSummarySchema).default([]),
+  /** `data-testid` values shipped in the detected Bruno build (for `ui.*` primitives). */
+  testIds: z.array(z.string()).default([]),
+  bruno: z.strictObject({ version: z.string().optional() }).default({}),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;

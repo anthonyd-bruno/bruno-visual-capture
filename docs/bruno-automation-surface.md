@@ -139,3 +139,58 @@ Full details: `spike-results.md`.
   new requests appear in the sidebar. Free tier shows "1 of 5 syncs used this month" — a fresh capture
   profile per run resets this; `user` profile mode would consume the user's quota.
 - `dialog.showOpenDialog` patched from the main process was **not** invoked by any of these flows.
+
+## Phase 9 audit — authoring surfaces (S10, measured 2026-09-18)
+
+Everything the new `request.*` / `folder.create` / `collection.*` actions and the inline-fixture writer rely on.
+
+- **New Request modal** (`collection-actions-new-request`): type radios `http-request` / `graphql-request` /
+  `grpc-request` / `ws-request` / `from-curl`, `request-name` (plain input), `method-selector` (button; menu
+  `method-selector-dropdown` with items `method-selector-<get|post|put|delete|patch|options|head|trace|connect>`
+  and `method-selector-add-custom`), `new-request-url` (a **CodeMirror** container — click + type),
+  `create-new-request-button` (submit). Creating writes `<Name>.yml` into the collection immediately.
+- **Editor URL bar**: `request-url` is a CodeMirror container (⌘A + type replaces); `url-bar-container` carries
+  no other ids. `tab-draft-icon` / `request-tab-draft-icon` mark unsaved changes; ⌘S clears them.
+- **Body tab**: `request-body-mode-selector` → `request-body-mode-label-<multipartform|formurlencoded|json|xml|text|sparql|file|none>`;
+  editor `request-body-editor` (CodeMirror). `body-type-select` from the static id list is not rendered here.
+- **Auth tab**: `auth-mode-selector` (`auth-mode-label`, `inherited-auth-mode`) → `auth-mode-dropdown-<awsv4|basic|bearer|digest|ntlm|oauth1|oauth2|wsse|apikey|akamai-edgegrid|inherit>`;
+  fields are unlabelled CodeMirror editors in label order (bearer: Token; basic: Username, Password; apikey: Key, Value + `auth-placement-selector`).
+- **Headers / Params**: `request-headers-table` / `query-params-table` → `virtuoso-item-list` rows with cells
+  `column-name` / `column-value` / `column-description`, each a CodeMirror; there is no "add" button — typing into
+  the trailing empty row's name cell appends a new empty row. `bulk-edit-toggle` switches to text mode.
+- **Item menu**: `collection-item-menu` (on hover / right-click of `sidebar-collection-item-row`) →
+  `collection-item-menu-<clone|copy|rename|generate-code|create-example|show-in-folder|info|delete>`.
+- **New Folder modal**: `new-folder-input` + `button[type=submit]`; folder appears as a `sidebar-collection-item-row`.
+- **Collections "+"**: `collections-header-add-menu` → `collections-header-add-menu-<create|open|import>`.
+  **Create collection is an inline sidebar editor**, not a modal: `input.inline-collection-input` (no test id,
+  preselected "Untitled Collection"), buttons titled "Advanced options" / "Create" / "Cancel"; **Enter creates**
+  at `preferences.general.defaultLocation` and registers it in `workspace.yml`; a "Collection created!" toast shows.
+- **Collection settings**: `collection-actions-settings` → `settings-tab-bar`,
+  `collection-settings-tab-<overview|headers|vars|auth|script|tests|presets|proxy|clientCert|externalSecrets|protobuf>`.
+- **Accessible names** worth `ui.click role=button name=…`: Home, Search requests, Add new collection,
+  More actions, Add new API Spec, Runner, New Transient Request, Open Preferences, Change Theme, Global Search,
+  Open Cookies, Open Dev Tools; pane tabs have `role=tab` with their visible label.
+- **Empty workspace** (no collections): only `workspace-menu`, `sidebar`, `collections-header-add-menu`,
+  `api-specs-header-add-menu`, `collection-header` (the workspace overview) are present; body text reads
+  "No collections found. Create or Open Collection." — the starting state for prompts about the first collection.
+
+### YAML Bruno 4.1.0 writes (drives `writeInlineCollection`)
+
+```yaml
+http:
+  method: GET
+  url: "{{baseUrl}}/users/1"
+  headers: [{ name: Accept, value: application/json }, { name: X-Trace, value: abc }]
+  body: { type: json, data: '{"title": "spike"}' }
+  auth: { type: bearer, token: spike-token }          # or
+  auth: { type: basic, username: alice, password: s3cret }
+  auth: { type: apikey, key: X-API-Key, value: key-123, placement: header }
+  auth: inherit                                        # the inherit case is a bare string
+settings: { encodeUrl: true, timeout: 0, followRedirects: true, maxRedirects: 5, forwardAuthorizationHeader: false }
+```
+
+### Loader gotcha
+
+`page.evaluate(fn)` under tsx/esbuild injects `__name(...)` helpers into function sources that use inner
+named functions; the page has no `__name` → `ReferenceError`. `observePage` therefore ships its script as a
+plain string. Keep evaluate callbacks to single expressions or strings.

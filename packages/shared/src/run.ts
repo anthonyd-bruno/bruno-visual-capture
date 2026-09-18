@@ -119,6 +119,11 @@ export const RunEventSchema = z.discriminatedUnion('type', [
   ev('workflow.step.started', { step: StepSummarySchema, total: z.number().int().positive() }),
   ev('workflow.step.completed', { step: StepSummarySchema, durationMs: z.number().int().nonnegative(), retries: z.number().int().nonnegative().default(0) }),
   ev('workflow.step.failed', { step: StepSummarySchema, error: RunErrorSchema, continued: z.boolean() }),
+  /** Phase 9 self-healing: a failed step is being diagnosed from the live UI … */
+  ev('workflow.healing', { step: StepSummarySchema, error: RunErrorSchema, attempt: z.number().int().positive(), max: z.number().int().positive() }),
+  /** … and was replaced by these steps (which now run in its place). `total` is the new step count. */
+  ev('workflow.healed', { step: StepSummarySchema, replacement: z.array(StepSummarySchema), dropped: z.number().int().nonnegative(), total: z.number().int().positive(), rationale: z.string() }),
+  ev('workflow.heal.failed', { step: StepSummarySchema, attempt: z.number().int().positive(), message: z.string() }),
   ev('preview.frame', { dataUrl: z.string().startsWith('data:image/'), width: z.number().int().positive(), height: z.number().int().positive() }),
   ev('artifact.created', { artifact: ArtifactSchema }),
   ev('recording.started', {}),

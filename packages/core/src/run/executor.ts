@@ -1,7 +1,7 @@
 import type { ActionContext, ActionRegistry, BrunoSession } from '@bruno-capture/automation';
-import { CursorController, resolveTarget, waitForState } from '@bruno-capture/automation';
+import { CursorController, observePage, resolveTarget, waitForState } from '@bruno-capture/automation';
 import {
-  stepKind, type CaptureConfig, type ResolvedParameters, type RunError, type RunEvent, type Step, type StepRecord, type WorkflowDefinition,
+  stepKind, type CaptureConfig, type Healer, type ResolvedParameters, type RunError, type RunEvent, type Step, type StepRecord, type StepSummary, type WorkflowDefinition,
 } from '@bruno-capture/shared';
 import type { RunArtifactStore } from './artifacts.js';
 import type { CaptureController } from './capture.js';
@@ -33,16 +33,24 @@ export interface ExecutorDeps {
   autoRecord?: boolean;
   /** Synthetic cursor (PRD §58); a hidden controller is used when absent. */
   cursor?: CursorController;
+  /** Phase 9 self-healing: consulted when a step fails (before continueOnError/abort handling). */
+  healer?: Healer;
+  maxHeals?: number;
+  /** The user's goal, shown to the healer (the prompt when the run came from one). */
+  goal?: string;
 }
 
 export interface ExecutionResult {
   steps: StepRecord[];
   errors: RunError[];
   status: 'completed' | 'completed_with_errors';
+  /** The step list that actually ran (original steps with heals spliced in). Equals the definition's when nothing was healed. */
+  finalSteps: Step[];
+  heals: { attempts: number; healed: number };
 }
 
 export class WorkflowStepFailure extends Error {
-  constructor(public readonly error: RunError, public readonly steps: StepRecord[], public readonly errors: RunError[]) {
+  constructor(public readonly error: RunError, public readonly steps: StepRecord[], public readonly errors: RunError[], public readonly heals: { attempts: number; healed: number } = { attempts: 0, healed: 0 }) {
     super(error.message);
     this.name = 'WorkflowStepFailure';
   }
@@ -112,7 +120,7 @@ export async function executeWorkflow(deps: ExecutorDeps): Promise<ExecutionResu
   const timeoutMs = deps.stepTimeoutMs ?? 15_000;
   const steps: StepRecord[] = [];
   const errors: RunError[] = [];
-  const total = def.steps.length;
+  let total = def.steps.length;
   const now = () => new Date().toISOString();
 
   deps.emit({ type: 'workflow.started', runId: deps.runId, at: now(), workflowId: def.id, stepCount: total });
@@ -131,7 +139,17 @@ export async function executeWorkflow(deps: ExecutorDeps): Promise<ExecutionResu
     log: (m) => deps.log(m),
   };
 
-  for (const [index, step] of def.steps.entries()) {
+  // Phase 9: the queue is mutable so the healer can splice replacement steps in at the failure point.
+  const queue: Step[] = [...def.steps];
+  const inserted = new Set<Step>();
+  const heals = { attempts: 0, healed: 0 };
+  const maxHeals = deps.healer ? deps.maxHeals ?? 4 : 0;
+  const finalSteps: Step[] = [];
+  const summaryOf = (s: Step, i: number): StepSummary => ({ index: i, kind: stepKind(s), label: stepLabel(s, i) });
+
+  for (let index = 0; index < queue.length; index++) {
+    const step = queue[index]!;
+    total = queue.length;
     if (signal.aborted) throw new RunCancelled(steps, errors);
     const kind = stepKind(step);
     const label = stepLabel(step, index);
@@ -239,20 +257,52 @@ export async function executeWorkflow(deps: ExecutorDeps): Promise<ExecutionResu
     try {
       await run();
       const durationMs = Date.now() - t0;
-      steps.push({ index, kind, label, status: 'completed', startedAt, durationMs, retries });
+      steps.push({ index, kind, label, status: 'completed', startedAt, durationMs, retries, ...(inserted.has(step) ? { inserted: true } : {}) });
+      finalSteps.push(step);
       deps.emit({ type: 'workflow.step.completed', runId: deps.runId, at: now(), step: summary, durationMs, retries });
     } catch (e) {
       if (signal.aborted) throw new RunCancelled(steps, errors);
       const error = toRunError(e, index, 'action' in step ? step.action : undefined);
-      steps.push({ index, kind, label, status: 'failed', startedAt, durationMs: Date.now() - t0, retries, error });
+
+      // Phase 9: ask the healer for replacement steps before giving up on the run.
+      if (deps.healer && heals.attempts < maxHeals && kind !== 'startRecording' && kind !== 'stopRecording') {
+        heals.attempts++;
+        deps.emit({ type: 'workflow.healing', runId: deps.runId, at: now(), step: summary, error, attempt: heals.attempts, max: maxHeals });
+        deps.log(`step failed (${error.message}); asking the self-healer (attempt ${heals.attempts}/${maxHeals})`, { stepIndex: index, code: error.code });
+        let outcome;
+        try {
+          const observation = await observePage(page);
+          outcome = await deps.healer.heal({ goal: deps.goal ?? (def.description || def.name), definition: def, executed: [...finalSteps], failed: step, failedIndex: index, error, remaining: queue.slice(index + 1), observation, attempt: heals.attempts, maxAttempts: maxHeals, signal });
+        } catch (he) {
+          outcome = { giveUp: true as const, reason: `healer error: ${String((he as Error).message ?? he).split('\n')[0]}` };
+        }
+        if (signal.aborted) throw new RunCancelled(steps, errors);
+        if ('giveUp' in outcome) {
+          deps.emit({ type: 'workflow.heal.failed', runId: deps.runId, at: now(), step: summary, attempt: heals.attempts, message: outcome.reason });
+          deps.log(`self-healer gave up: ${outcome.reason}`, { stepIndex: index });
+        } else {
+          heals.healed++;
+          for (const r of outcome.replacement) inserted.add(r);
+          queue.splice(index, 1 + outcome.dropFollowing, ...outcome.replacement);
+          total = queue.length;
+          steps.push({ index, kind, label, status: 'healed', startedAt, durationMs: Date.now() - t0, retries, error });
+          deps.emit({ type: 'workflow.healed', runId: deps.runId, at: now(), step: summary, replacement: outcome.replacement.map((r, k) => summaryOf(r, index + k)), dropped: outcome.dropFollowing, total, rationale: outcome.rationale });
+          deps.log(`healed: ${outcome.replacement.length} replacement step(s)${outcome.dropFollowing ? `, ${outcome.dropFollowing} dropped` : ''} — ${outcome.rationale}`, { stepIndex: index });
+          index--; // re-enter the loop at the first replacement step
+          continue;
+        }
+      }
+
+      steps.push({ index, kind, label, status: 'failed', startedAt, durationMs: Date.now() - t0, retries, error, ...(inserted.has(step) ? { inserted: true } : {}) });
       errors.push(error);
       deps.emit({ type: 'workflow.step.failed', runId: deps.runId, at: now(), step: summary, error, continued: step.continueOnError });
       deps.log(`step failed: ${error.message}`, { stepIndex: index, code: error.code });
       if (!step.continueOnError) {
-        for (let j = index + 1; j < total; j++) steps.push({ index: j, kind: stepKind(def.steps[j]!), label: stepLabel(def.steps[j]!, j), status: 'skipped', retries: 0 });
+        for (let j = index + 1; j < queue.length; j++) steps.push({ index: j, kind: stepKind(queue[j]!), label: stepLabel(queue[j]!, j), status: 'skipped', retries: 0 });
         if (recordingOpen && deps.recording) await deps.recording.stop().catch(() => undefined);
-        throw new WorkflowStepFailure(error, steps, errors);
+        throw new WorkflowStepFailure(error, steps, errors, heals);
       }
+      finalSteps.push(step);
     }
   }
 
@@ -260,5 +310,5 @@ export async function executeWorkflow(deps: ExecutorDeps): Promise<ExecutionResu
     const r = await deps.recording.stop().catch(() => undefined);
     deps.emit({ type: 'recording.stopped', runId: deps.runId, at: now(), frames: r?.frames });
   }
-  return { steps, errors, status: errors.length ? 'completed_with_errors' : 'completed' };
+  return { steps, errors, status: errors.length ? 'completed_with_errors' : 'completed', finalSteps, heals };
 }

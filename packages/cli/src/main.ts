@@ -15,6 +15,9 @@ Usage:
   bru-capture helper request       ask macOS for Screen Recording permission (shows the system prompt)
   bru-capture run <workflowId> --output <screenshots|video|gif> [--preset <id>] [--param k=v ...]
                                    [--relaunch] run a workflow and stream progress
+  bru-capture compose "<prompt>" [--output <auto|screenshots|video|gif>] [--save] [--run]
+                                   ask the AI planner to reuse or compose a workflow for the prompt;
+                                   --save writes it to the generated workflows directory, --run also runs it
 
 Options:
   --port <n>      fixed port for the backend (default: free port)
@@ -145,6 +148,50 @@ async function run(workflowId: string | undefined, v: { output?: string; preset?
   } finally { await ctx.shutdown(); }
 }
 
+async function compose(prompt: string | undefined, v: { output?: string; save?: boolean; run?: boolean; preset?: string; json?: boolean; relaunch?: boolean }): Promise<number> {
+  if (!prompt) { console.error('usage: bru-capture compose "<prompt>" [--output auto|screenshots|video|gif] [--save] [--run]'); return 2; }
+  const ctx = await createContext({ log: (m) => { if (!v.json) console.log('  ·', m); } });
+  try {
+    const { CapturePlanner, buildProviders } = await import('@bruno-capture/ai');
+    const { BUILT_IN_PRESETS } = await import('@bruno-capture/shared');
+    const settings = ctx.settings.get();
+    const { providers } = await buildProviders(settings);
+    const planner = new CapturePlanner({ preferred: settings.ai.preferredProvider, fallbackEnabled: settings.ai.fallbackEnabled, providers, presets: BUILT_IN_PRESETS, log: (m) => { if (!v.json) console.log('  ·', m); } });
+    const outcome = await planner.compose(prompt, await ctx.composeCatalog(), (v.output as OutputType | 'auto' | undefined) ?? 'auto');
+    if (!outcome.ok) {
+      console.error(`✖ ${outcome.error.message}${outcome.error.hint ? `\n  ↳ ${outcome.error.hint}` : ''}`);
+      if (outcome.suggestions.length) console.error(`  closest registered workflows: ${outcome.suggestions.map((w) => w.id).join(', ')}`);
+      return 1;
+    }
+    const r = outcome.result;
+    if (r.kind === 'reuse') {
+      const p = r.validated;
+      if (v.json) console.log(JSON.stringify({ kind: 'reuse', plan: p.plan, parameters: p.parameters, attribution: outcome.attribution }, null, 2));
+      else console.log(`reuse ${p.workflow.id} → ${p.plan.output} (${p.preset.id}) confidence ${r.confidence.toFixed(2)} [${outcome.attribution.provider} · ${outcome.attribution.model}]\n  ${r.rationale}`);
+      if (v.run) return run(p.workflow.id, { output: p.plan.output, preset: p.preset.id, param: Object.entries(p.parameters).map(([k, x]) => `${k}=${String(x)}`), relaunch: v.relaunch, json: v.json });
+      return 0;
+    }
+    const { definitionToYaml } = await import('@bruno-capture/core');
+    const yaml = definitionToYaml(r.input);
+    if (v.json) console.log(JSON.stringify({ kind: 'compose', definition: r.input, output: r.output, preset: r.preset.id, confidence: r.confidence, rationale: r.rationale, debt: r.debt, primitives: r.primitives, attribution: outcome.attribution }, null, 2));
+    else {
+      console.log(`composed "${r.definition.name}" → ${r.output} (${r.preset.id}) · ${r.definition.steps.length} steps · confidence ${r.confidence.toFixed(2)} · ${r.primitives} ui primitive(s), ${r.debt} css selector(s) [${outcome.attribution.provider} · ${outcome.attribution.model}]`);
+      console.log(`  ${r.rationale}\n`);
+      console.log(yaml);
+    }
+    if (v.save || v.run) {
+      const saved = await ctx.generated.save(r.input, { prompt, provider: outcome.attribution.provider, model: outcome.attribution.model });
+      await ctx.registry.refresh();
+      if (!v.json) console.log(`saved as ${saved.id} → ${saved.file}`);
+      if (v.run) {
+        await ctx.shutdown();
+        return run(saved.id, { output: r.output, preset: r.preset.id, relaunch: v.relaunch, json: v.json });
+      }
+    }
+    return 0;
+  } finally { await ctx.shutdown().catch(() => undefined); }
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -158,6 +205,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       preset: { type: 'string' },
       param: { type: 'string', multiple: true },
       relaunch: { type: 'boolean', default: false },
+      save: { type: 'boolean', default: false },
+      run: { type: 'boolean', default: false },
     },
   });
   if (values.help) { console.log(USAGE); return 0; }
@@ -168,6 +217,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     case 'workflows': return workflows(sub, values.json ?? false);
     case 'workflow': return sub === 'add' ? workflowAdd(third) : (console.error(USAGE), 2);
     case 'run': return run(sub, values);
+    case 'compose': return compose(sub, values);
     case 'helper': {
       const h = await CaptureHelper.locate(appPaths().binDir);
       if (!h) { console.error('Native capture helper not installed. Build it with: pnpm helper:build -- --install'); return 2; }

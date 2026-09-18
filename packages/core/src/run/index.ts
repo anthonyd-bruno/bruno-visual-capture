@@ -1,5 +1,7 @@
 export * from './events.js';
 export * from './fixtures.js';
+export * from './inline-fixture.js';
+export * from './fixture-catalog.js';
 export * from './artifacts.js';
 export * from './capture.js';
 export * from './executor.js';

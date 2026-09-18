@@ -14,6 +14,8 @@ const planCommon = {
 export const CapturePlanSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('capture'), feature: SlugSchema, capture: SlugSchema, output: z.literal('screenshot'), ...planCommon }),
   z.strictObject({ type: z.literal('workflow'), workflow: SlugSchema, output: z.enum(['screenshots', 'video', 'gif']), ...planCommon }),
+  /** Phase 9: a workflow the planner composed from registered actions for this prompt; `workflow` is its generated id. */
+  z.strictObject({ type: z.literal('composed'), workflow: SlugSchema, output: z.enum(['screenshots', 'video', 'gif']), ...planCommon }),
 ]);
 export type CapturePlan = z.infer<typeof CapturePlanSchema>;
 

@@ -8,12 +8,13 @@ import {
 } from '@bruno-capture/automation';
 import {
   BUILT_IN_PRESETS, DEFAULT_PRESET_FOR_OUTPUT, MANIFEST_SCHEMA_VERSION, WorkflowDefinitionSchema, resolveParameters,
-  type CaptureConfig, type CapturePreset, type CreateRunRequest, type ResolvedParameters, type RunError, type RunEvent, type RunManifest, type RunStatus, type StepRecord, type WorkflowDefinition,
+  type CaptureConfig, type CapturePreset, type CreateRunRequest, type Healer, type ResolvedParameters, type RunError, type RunEvent, type RunManifest, type RunStatus, type StepRecord, type WorkflowDefinition,
 } from '@bruno-capture/shared';
 import { parse as parseYaml } from 'yaml';
 import { BRUNO_USER_DATA_DIR, type AppPaths } from '../paths.js';
 import type { SettingsStore } from '../settings.js';
 import type { LoadedWorkflow, WorkflowRegistry } from '../workflows/registry.js';
+import { definitionToYaml, type GeneratedWorkflowStore } from '../workflows/generated.js';
 import { RunArtifactStore } from './artifacts.js';
 import { CaptureController } from './capture.js';
 import { RunEventBus } from './events.js';
@@ -81,6 +82,10 @@ export interface RunEngineDeps {
   fixturesDir: string;
   presets?: readonly CapturePreset[];
   log?: (message: string) => void;
+  /** Phase 9: build a self-healer for a run (undefined = healing off or no provider). Resolved per run so key/setting changes apply. */
+  healer?: (ctx: { definition: WorkflowDefinition; prompt?: string }) => Promise<Healer | undefined>;
+  /** Phase 9: where generated workflows live; lets a healed run write its learned steps back. */
+  generated?: GeneratedWorkflowStore;
 }
 
 interface ActiveRun { runId: string; abort: AbortController; done: Promise<void> }
@@ -237,6 +242,8 @@ export class RunEngine {
       const targetDir = profileMode === 'capture'
         ? path.join(this.deps.paths.tmpDir, runId, 'workspace')
         : path.join(this.deps.paths.root, 'runtime-fixtures', def.fixture?.source === 'bundled' ? def.fixture.path : def.id);
+      const healer = settings.ai.selfHeal && settings.ai.maxHeals > 0 ? await this.deps.healer?.({ definition: def, prompt: req.request?.prompt }).catch((e) => { log(`self-healer unavailable: ${firstLine(e)}`); return undefined; }) : undefined;
+      if (healer) log(`self-healing enabled (up to ${settings.ai.maxHeals} repair${settings.ai.maxHeals === 1 ? '' : 's'})`);
       rec.staged = await stageFixture(def, { fixturesDir: this.deps.fixturesDir, targetDir, parameters: params, refreshInPlace: profileMode === 'user' });
       if (rec.staged) log(`fixture staged at ${rec.staged.workspacePath}${rec.staged.collectionName ? ` (collection "${rec.staged.collectionName}")` : ''}`);
 
@@ -328,7 +335,22 @@ export class RunEngine {
         recording, autoRecord: isRecording, cursor,
         artifacts: rec.artifacts, emit: (e) => rec.bus.emit(e), log, signal, workspacePath: rec.staged?.workspacePath,
         suspendPreview: async (fn) => { previewSuspended++; try { return await fn(); } finally { previewSuspended--; } },
+        healer, maxHeals: settings.ai.maxHeals, goal: req.request?.prompt,
       });
+
+      // Phase 9: a healed run learned a better step list — record it (snapshot + the generated file it came from).
+      if (result.heals.attempts > 0) {
+        let learned = false;
+        if (result.heals.healed > 0) {
+          const learnedDef: WorkflowDefinition = { ...def, steps: result.finalSteps };
+          await rec.artifacts.writeSnapshot(definitionToYaml(learnedDef, `Snapshot of run ${runId} after ${result.heals.healed} self-heal(s); the steps below are the ones that actually ran.`)).catch((e) => log(`snapshot rewrite failed: ${firstLine(e)}`));
+          if (lw.source === 'generated' && this.deps.generated && !req.regenerateOf) {
+            try { await this.deps.generated.update(lw.file, learnedDef, `Updated by run ${runId}: ${result.heals.healed} step(s) repaired by the self-healer.`); learned = true; log(`learned: rewrote ${path.basename(lw.file)} with the healed steps`); }
+            catch (e) { log(`could not write learned steps back: ${firstLine(e)}`); }
+          }
+        }
+        rec.manifest.healing = { attempts: result.heals.attempts, healed: result.heals.healed, learned };
+      }
 
       this.setStatus(rec, 'processing');
       rec.bus.emit({ type: 'processing.started', runId, at: new Date().toISOString() });
@@ -374,6 +396,7 @@ export class RunEngine {
         const c = e instanceof RunCancelled ? e : undefined;
         await this.finalize(rec, 'cancelled', c?.steps ?? [], c?.errors ?? [], undefined, stopPreview);
       } else if (e instanceof WorkflowStepFailure) {
+        if (e.heals.attempts > 0) rec.manifest.healing = { attempts: e.heals.attempts, healed: e.heals.healed, learned: false };
         await this.finalize(rec, 'failed', e.steps, e.errors, e.error, stopPreview);
       } else {
         const err = e as { code?: string; hint?: string };

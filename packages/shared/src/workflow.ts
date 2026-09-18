@@ -3,6 +3,7 @@ import {
   ActionIdSchema, CursorModeSchema, FramingSchema, IdentifierSchema, OutputTypeSchema, RegionIdSchema, SlugSchema,
   ThemeSchema,
 } from './common.js';
+import { InlineCollectionSchema } from './fixture-inline.js';
 import { ParametersSchema } from './parameters.js';
 
 /** Bundled fixtures are copied to a temp workspace; parameter fixtures are user paths (PRD §44). */
@@ -12,6 +13,8 @@ export const FixtureSchema = z.discriminatedUnion('source', [
     path: z.string().regex(/^[a-z0-9][a-z0-9-]*(\/[a-z0-9][a-z0-9-]*)*$/, 'must be a relative fixture path like runner/basic-workspace'),
   }),
   z.strictObject({ source: z.literal('parameter'), parameter: IdentifierSchema, copy: z.boolean().default(false) }),
+  /** Phase 9: the collection is described in the workflow itself and written as Bruno YAML at run time. */
+  z.strictObject({ source: z.literal('inline'), collection: InlineCollectionSchema }),
 ]);
 export type Fixture = z.infer<typeof FixtureSchema>;
 
@@ -221,7 +224,7 @@ export const WorkflowDefinitionSchema = z
 export type WorkflowDefinition = z.infer<typeof WorkflowDefinitionSchema>;
 export type WorkflowDefinitionInput = z.input<typeof WorkflowDefinitionSchema>;
 
-/** Count of §38 escape-hatch steps — reported as technical debt (D11). */
+/** Count of §38 escape-hatch steps (raw selectors, incl. `ui.*` primitives addressed by CSS) — reported as technical debt (D11). */
 export function selectorDebt(wf: WorkflowDefinition): number {
-  return wf.steps.filter((s) => 'selectorAction' in s).length;
+  return wf.steps.filter((s) => 'selectorAction' in s || ('action' in s && s.action.startsWith('ui.') && typeof (s.params as Record<string, unknown>)['css'] === 'string')).length;
 }
