@@ -503,10 +503,15 @@ Built and verified against Bruno 4.1.0 on this machine — see `docs/spike-resul
   continueOnError, cancellation), all four screenshot framings (Full App Window via macOS
   `screencapture -l <CGWindowID>` until the SCK helper exists), artifacts + manifest + snapshot,
   live preview over SSE, Runner workflow end to end from CLI, HTTP and UI.
-- **Phase 4** partial: Workflows screen, import/directories via API + UI, manual Refresh, generated
-  parameter forms. Outstanding: filesystem watching (§29).
-- **Phase 5/6** not started: `RecordingController` (CDP screencast + FFmpeg), SCK helper, cursor
-  overlay, AI providers/Keychain. Video/GIF requests currently return a clear 400.
+- **Phase 4** complete: Workflows screen, import/directories via API + UI, manual Refresh,
+  generated parameter forms, debounced filesystem watching (chokidar) that never touches an active run.
+- **Phase 5** renderer path complete: `ScreencastRecorder` (CDP) → `RendererRecordingController`
+  (whole-workflow or bounded, region/locator crop) → `packages/media` FFmpeg adapter (CFR 30 fps H.264
+  MP4, palette GIF at 15 fps, crop/scale/pad, `-t` timeline trim) → engine `processing` state with
+  intermediates preserved on failure. Verified live for MP4 and GIF. Outstanding: synthetic cursor
+  overlay (§58), ScreenCaptureKit helper for Full App Window video (§49/§61; compiles, needs the
+  Screen Recording prompt approved at the keyboard).
+- **Phase 6** not started: AI providers/Keychain.
 - **Phase 7** partial: Library list/filters, download, delete, Regenerate Latest. Outstanding:
   Regenerate Exact from the snapshot, ZIP, Reveal in Finder, artifact detail metadata.
 

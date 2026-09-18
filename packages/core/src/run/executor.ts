@@ -29,6 +29,8 @@ export interface ExecutorDeps {
   stepTimeoutMs?: number;
   /** Called around artifact captures so the preview loop can pause (PRD §59). */
   suspendPreview?<T>(fn: () => Promise<T>): Promise<T>;
+  /** PRD §50 default: record the entire workflow when it declares no startRecording/stopRecording. */
+  autoRecord?: boolean;
 }
 
 export interface ExecutionResult {
@@ -113,6 +115,13 @@ export async function executeWorkflow(deps: ExecutorDeps): Promise<ExecutionResu
 
   deps.emit({ type: 'workflow.started', runId: deps.runId, at: now(), workflowId: def.id, stepCount: total });
   let recordingOpen = false;
+  const hasBounds = def.steps.some((s) => 'startRecording' in s);
+  if (deps.autoRecord && deps.recording && !hasBounds) {
+    await deps.recording.start({ framing: deps.captureConfig.framing, region: deps.captureConfig.region, locator: deps.captureConfig.locator });
+    recordingOpen = true;
+    deps.emit({ type: 'recording.started', runId: deps.runId, at: now() });
+    deps.log('recording the whole workflow (no explicit recording bounds)');
+  }
 
   const actionCtx: ActionContext = {
     session, page, signal, parameters: deps.parameters, workspacePath: deps.workspacePath, timeoutMs,

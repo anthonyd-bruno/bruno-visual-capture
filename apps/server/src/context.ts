@@ -1,5 +1,5 @@
 import {
-  RunEngine, SettingsStore, WorkflowRegistry, WorkflowSourcesStore, appPaths, builtInWorkflowsDir, bundledFixturesDir, checkSystemStatus, resolveBruno, type AppPaths,
+  RunEngine, SettingsStore, WorkflowRegistry, WorkflowSourcesStore, WorkflowWatcher, appPaths, builtInWorkflowsDir, bundledFixturesDir, checkSystemStatus, resolveBruno, type AppPaths,
 } from '@bruno-capture/core';
 import { createDefaultActionRegistry } from '@bruno-capture/automation';
 import type { SystemStatus } from '@bruno-capture/shared';
@@ -10,6 +10,7 @@ export interface ServerContext {
   settings: SettingsStore;
   sources: WorkflowSourcesStore;
   registry: WorkflowRegistry;
+  watcher?: WorkflowWatcher;
   engine: RunEngine;
   fixturesDir: string;
   systemStatus(): Promise<SystemStatus>;
@@ -31,12 +32,17 @@ export async function createContext(opts: CreateContextOptions = {}): Promise<Se
   const registry = new WorkflowRegistry({ builtInDir: builtInWorkflowsDir(), fixturesDir, sources: () => sources.get(), log });
   await registry.refresh();
   const engine = new RunEngine({ settings, paths, registry, actions: createDefaultActionRegistry(), resolveBruno: () => resolveBruno(settings.get()), fixturesDir, log });
+  let watcher: WorkflowWatcher | undefined;
+  if (settings.get().workflows.watch) {
+    watcher = new WorkflowWatcher({ registry, builtInDir: builtInWorkflowsDir(), sources: () => sources.get(), log });
+    await watcher.start();
+  }
   const indexed = await engine.indexArtifactRoot();
   log(`library: ${indexed} runs indexed from ${settings.artifactRoot()}`);
   const aiKeyPresence = () => ({ openai: Boolean(process.env.OPENAI_API_KEY), anthropic: Boolean(process.env.ANTHROPIC_API_KEY) });
   return {
-    paths, settings, sources, registry, engine, fixturesDir, aiKeyPresence, log,
+    paths, settings, sources, registry, watcher, engine, fixturesDir, aiKeyPresence, log,
     systemStatus: () => checkSystemStatus({ settings: settings.get(), paths, aiKeys: aiKeyPresence(), workflowRegistry: registry.stats() }),
-    shutdown: () => engine.shutdown(),
+    shutdown: async () => { await watcher?.stop(); await engine.shutdown(); },
   };
 }

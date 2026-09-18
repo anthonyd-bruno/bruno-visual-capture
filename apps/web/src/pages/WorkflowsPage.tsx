@@ -9,7 +9,13 @@ export function WorkflowsPage() {
   const [open, setOpen] = useState<(WorkflowListItem & { rawText: string }) | null>(null);
   const [error, setError] = useState<string>();
   const load = () => api.workflows().then((r) => setItems(r.workflows)).catch((e) => setError(String(e.message)));
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    const timer = setInterval(() => { void load(); }, 5000);
+    const onFocus = () => { void load(); };
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(timer); window.removeEventListener('focus', onFocus); };
+  }, []);
   const act = (p: Promise<unknown>) => { setError(undefined); p.then(load).catch((e) => setError(String((e as Error).message))); };
   const shown = items.filter((w) => !q || `${w.id ?? ''} ${w.summary?.name ?? ''} ${w.summary?.feature ?? ''} ${w.file}`.toLowerCase().includes(q.toLowerCase()));
   return (

@@ -176,3 +176,20 @@ profile mode.
 - **End to end through `RunEngine`** (capture profile, `docs-screenshot`): create → seeded profile →
   launch → 11 steps → 2 × 1600×1000 PNG → manifest/snapshot/log, temp workspace removed, Bruno closed,
   user's Bruno untouched: **4.3 s**. Over HTTP (`POST /api/runs` → SSE → download): 4.8 s incl. 3 preview frames.
+
+## Phase 5a — renderer recording, measured against ffmpeg 8.1.1
+
+- **concat demuxer trailing file:** repeating the last file (the documented trick to make the final
+  `duration` count) adds a copy of the previous duration on ffmpeg 8 — 2.5 s became 4.03 s; omitting
+  the repeat ignores the last duration (1.47 s). Fix: keep the repeat and hard-trim with
+  `-t <timeline seconds>` → exactly 2.500 s. `encodeFramesToMp4` always does this.
+- **GIF frame rate is centisecond-quantized:** delays are whole 1/100 s, so 15 fps is written as
+  6–7 cs and probes as 16.7 fps. Exact GIF rates are 10, 12.5, 20, 25, 50. Docs GIF stays at 15 (fine
+  visually); tests accept 14–17.
+- **Live results** (Runner workflow, bounded to run→results): Demo Video → 1920×1080 H.264, 30/1 CFR,
+  1.7 s, 73 KB, no audio, dark theme, mid-run frames show the spinner and "Cancel Execution"; Docs GIF →
+  recorded at 1600×1000 and downscaled to 1000×626, 15 fps, 26 frames, 1.74 s, 138 KB. Whole pipeline
+  ~4.6 s wall clock including launch.
+- **Design correction:** the first GIF attempt resized Bruno's *window* to 1000×625. PRD §54 means
+  "1000 px wide output, height from the capture aspect" — the engine now records at 1600×1000 (or the
+  overrides) and downscales; `capture.outputWidth` carries the GIF width in the manifest.

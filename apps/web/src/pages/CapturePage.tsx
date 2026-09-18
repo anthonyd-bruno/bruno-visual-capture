@@ -77,7 +77,7 @@ export function CapturePage({ initialWorkflow }: { initialWorkflow?: string }) {
             </select></div>
           <div><label>Preset</label>
             <select value={effectivePreset} onChange={(e) => setPreset(e.target.value)} disabled={!wf}>
-              {presets.map((p) => <option key={p.id} value={p.id}>{p.name} — {p.width}{p.height ? `×${p.height}` : ' wide'}, {p.theme}</option>)}
+              {presets.map((p) => <option key={p.id} value={p.id}>{p.name} — {p.height ? `${p.width}×${p.height}` : `${p.width} px wide (recorded at 1600×1000)`}, {p.theme}</option>)}
             </select></div>
         </div>
         {wf && <><h2>Parameters</h2><ParamForm wf={wf} values={params} onChange={setParams} /><p className="muted">{wf.description}</p></>}

@@ -36,6 +36,7 @@ export function registerWorkflowRoutes(app: FastifyInstance, ctx: ServerContext)
     const id = randomUUID();
     await ctx.sources.addImportedFile(id, file);
     await ctx.registry.refresh();
+    await ctx.watcher?.restart();
     const lw = ctx.registry.list().find((l) => l.importId === id);
     return { importId: id, file, valid: Boolean(lw?.definition), issues: lw?.issues ?? [] };
   });
@@ -43,6 +44,7 @@ export function registerWorkflowRoutes(app: FastifyInstance, ctx: ServerContext)
   app.delete<{ Params: { id: string } }>('/api/workflows/import/:id', async (req) => {
     await ctx.sources.removeImportedFile(req.params.id);
     await ctx.registry.refresh();
+    await ctx.watcher?.restart();
     return { removed: req.params.id };
   });
 
@@ -53,6 +55,7 @@ export function registerWorkflowRoutes(app: FastifyInstance, ctx: ServerContext)
     if (!(await stat(dir).then((s) => s.isDirectory()).catch(() => false))) throw new HttpError(404, 'dir_not_found', `Directory not found: ${dir}`);
     await ctx.sources.addDirectory(dir);
     await ctx.registry.refresh();
+    await ctx.watcher?.restart();
     return { directories: ctx.sources.get().customDirectories };
   });
 
@@ -61,6 +64,7 @@ export function registerWorkflowRoutes(app: FastifyInstance, ctx: ServerContext)
     if (!body.success) throw validationError('directory', body.error.issues);
     await ctx.sources.removeDirectory(body.data.path);
     await ctx.registry.refresh();
+    await ctx.watcher?.restart();
     return { directories: ctx.sources.get().customDirectories };
   });
 

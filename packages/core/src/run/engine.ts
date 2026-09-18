@@ -1,6 +1,7 @@
-import { rename, rm } from 'node:fs/promises';
+import { mkdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { ulid } from 'ulid';
+import { detectFFmpeg, encodeFramesToMp4, mp4ToGif } from '@bruno-capture/media';
 import {
   BrunoAlreadyRunningError, addCollectionToUserWorkspace, findRunningBruno, launchBruno, quitBrunoGracefully, seedCaptureProfile, setContentSize, setTheme,
   type ActionRegistry, type BrunoCandidate, type BrunoSession,
@@ -17,6 +18,7 @@ import { CaptureController } from './capture.js';
 import { RunEventBus } from './events.js';
 import { executeWorkflow, RunCancelled, WorkflowStepFailure } from './executor.js';
 import { stageFixture, type StagedFixture } from './fixtures.js';
+import { RendererRecordingController } from './recording.js';
 
 export class RunConflictError extends Error {
   readonly code = 'run_conflict';
@@ -78,19 +80,26 @@ export class RunEngine {
     if (!lw?.definition) throw new RunValidationError(`Unknown or invalid workflow "${req.workflowId}"`);
     const def = lw.definition;
     if (!def.supportedOutputs.includes(req.output)) throw new RunValidationError(`Workflow "${def.id}" does not support output "${req.output}" (supports ${def.supportedOutputs.join(', ')})`);
-    if (req.output === 'video' || req.output === 'gif') throw new RunValidationError('Video and GIF output are not available yet (recording lands in Phase 5)');
+    if (req.output === 'video' || req.output === 'gif') {
+      const ff = await detectFFmpeg();
+      if (!ff.ffmpeg.available || !ff.ffprobe.available) throw new RunValidationError(`${req.output.toUpperCase()} output needs FFmpeg, which was not found. Screenshots still work. Install it with: brew install ffmpeg`);
+    }
     const params = resolveParameters(def.parameters, req.parameters);
     if (!params.ok) throw new RunValidationError('Invalid parameters', params.errors.map((e) => ({ path: `parameters.${e.parameter}`, message: e.message })));
     const presetId = req.preset ?? def.defaults.preset ?? DEFAULT_PRESET_FOR_OUTPUT[req.output];
     const preset = this.presets.find((p) => p.id === presetId);
     if (!preset) throw new RunValidationError(`Unknown preset "${presetId}"`);
     const o = req.overrides;
+    // A GIF preset without a height (Docs GIF) records the app at a comfortable size and downscales
+    // the result to the preset width; the window is never squeezed to the GIF width.
+    const gifDownscale = req.output === 'gif' && preset.height === undefined;
     const captureConfig: CaptureConfig = {
       output: req.output, preset: preset.id,
       theme: o.theme ?? def.defaults.theme ?? preset.theme,
       framing: o.framing ?? def.defaults.framing ?? preset.framing,
       region: o.region, locator: o.locator,
-      width: o.width ?? preset.width, height: o.height ?? preset.height,
+      width: o.width ?? (gifDownscale ? 1600 : preset.width), height: o.height ?? (gifDownscale ? 1000 : preset.height),
+      outputWidth: gifDownscale ? preset.width : undefined,
       fps: o.fps ?? preset.fps, cursor: o.cursor ?? def.defaults.cursor ?? preset.cursor, scale: preset.scale,
     };
     if (captureConfig.framing === 'region' && !captureConfig.region) throw new RunValidationError('Framing "region" needs overrides.region');
@@ -210,6 +219,15 @@ export class RunEngine {
 
       this.setStatus(rec, 'running');
       const captureCtl = new CaptureController(session);
+      const isRecording = capture.output === 'video' || capture.output === 'gif';
+      if (isRecording && capture.framing === 'full-window') {
+        const e = new Error('Full App Window video needs the native capture helper (Phase 5b); use App Content Only or a region') as Error & { code: string };
+        e.code = 'recording_unsupported'; throw e;
+      }
+      const framesRoot = path.join(this.deps.paths.tmpDir, runId, 'frames');
+      const recording = isRecording
+        ? new RendererRecordingController(session, { framesRoot, viewport: { width: capture.width, height: capture.height ?? Math.round((capture.width * 10) / 16) }, log })
+        : undefined;
       let previewSuspended = 0;
       if (settings.capture.previewEnabled) {
         let inFlight = false;
@@ -225,12 +243,37 @@ export class RunEngine {
       }
       const result = await executeWorkflow({
         runId, definition: def, parameters: params, captureConfig: capture, session, actions: this.deps.actions, capture: captureCtl,
+        recording, autoRecord: isRecording,
         artifacts: rec.artifacts, emit: (e) => rec.bus.emit(e), log, signal, workspacePath: rec.staged?.workspacePath,
         suspendPreview: async (fn) => { previewSuspended++; try { return await fn(); } finally { previewSuspended--; } },
       });
 
       this.setStatus(rec, 'processing');
       rec.bus.emit({ type: 'processing.started', runId, at: new Date().toISOString() });
+      stopPreview?.(); stopPreview = undefined;
+      if (recording) {
+        signal.throwIfAborted();
+        const seg = recording.segments()[0];
+        if (!seg || seg.frames.length === 0) {
+          const e = new Error('The recording contains no frames') as Error & { code: string; hint: string };
+          e.code = 'recording_empty'; e.hint = 'Make sure something changes on screen between startRecording and stopRecording.'; throw e;
+        }
+        const work = path.join(this.deps.paths.tmpDir, runId, 'media');
+        await mkdir(work, { recursive: true });
+        const mp4 = await encodeFramesToMp4({ frames: seg.frames, startAt: seg.startedAt, stopAt: seg.stoppedAt, out: path.join(work, `${def.id}.mp4`), fps: 30, crop: seg.crop, signal });
+        log(`encoded ${mp4.probe.width}×${mp4.probe.height} ${mp4.probe.fps} fps, ${((mp4.probe.durationMs ?? 0) / 1000).toFixed(1)} s from ${seg.frames.length} frames`);
+        if (capture.output === 'video') {
+          const a = await rec.artifacts.addMedia('video', mp4.file, def.id, { width: mp4.probe.width, height: mp4.probe.height, durationMs: mp4.probe.durationMs, fps: mp4.probe.fps });
+          rec.bus.emit({ type: 'artifact.created', runId, at: new Date().toISOString(), artifact: a });
+        } else {
+          const gif = await mp4ToGif({ input: mp4.file, out: path.join(work, `${def.id}.gif`), fps: capture.fps ?? 15, width: capture.outputWidth ?? capture.width, signal });
+          const a = await rec.artifacts.addMedia('gif', gif.file, def.id, { width: gif.probe.width, height: gif.probe.height, durationMs: gif.probe.durationMs, fps: gif.probe.fps });
+          rec.bus.emit({ type: 'artifact.created', runId, at: new Date().toISOString(), artifact: a });
+          if (settings.capture.keepIntermediates) { await mkdir(rec.artifacts.debugDir, { recursive: true }); await rename(mp4.file, path.join(rec.artifacts.debugDir, path.basename(mp4.file))).catch(() => undefined); rec.manifest.debug.intermediates.push(`debug/${path.basename(mp4.file)}`); }
+        }
+        if (capture.height === undefined && mp4.probe.height) rec.manifest.capture.height = mp4.probe.height;
+        if (settings.capture.keepIntermediates) { await rename(framesRoot, path.join(rec.artifacts.debugDir, 'frames')).then(() => rec.manifest.debug.intermediates.push('debug/frames')).catch(() => undefined); }
+      }
       rec.bus.emit({ type: 'processing.completed', runId, at: new Date().toISOString() });
       await this.finalize(rec, result.status, result.steps, result.errors, undefined, stopPreview);
     } catch (e) {
@@ -254,13 +297,15 @@ export class RunEngine {
     m.steps = steps; m.errors = errors; m.artifacts = rec.artifacts.list(); m.completedAt = new Date().toISOString();
     const success = status === 'completed' || status === 'completed_with_errors';
 
+    const framesRoot = path.join(this.deps.paths.tmpDir, runId, 'frames');
+    if (!success) await rename(framesRoot, path.join(rec.artifacts.debugDir, 'frames')).then(() => { m.debug.intermediates.push('debug/frames'); }).catch(() => undefined);
     if (rec.staged?.temporary) {
       if (success) await rm(rec.staged.workspacePath, { recursive: true, force: true }).catch(() => undefined);
       else {
         await rename(rec.staged.workspacePath, rec.artifacts.debugWorkspaceDir).then(() => { m.debug.preservedWorkspace = true; }).catch(() => undefined);
       }
-      await rm(path.join(this.deps.paths.tmpDir, runId), { recursive: true, force: true }).catch(() => undefined);
     }
+    await rm(path.join(this.deps.paths.tmpDir, runId), { recursive: true, force: true }).catch(() => undefined);
     // Capture mode: we exclusively own that Bruno (PRD §64). User mode: Bruno stays in its final state (PRD §24).
     if (m.bruno.profileMode === 'capture' && this.sessionAlive()) {
       await this.session!.close().catch(() => undefined);

@@ -39,6 +39,8 @@ export const CaptureConfigSchema = z.strictObject({
   width: z.number().int().positive(),
   /** Absent for GIFs until derived from the capture aspect ratio. */
   height: z.number().int().positive().optional(),
+  /** GIF only: final artifact width; the window is recorded at width×height and downscaled (PRD §54). */
+  outputWidth: z.number().int().positive().optional(),
   fps: z.number().int().positive().optional(),
   cursor: CursorModeSchema,
   scale: z.enum(['css', 'device']),

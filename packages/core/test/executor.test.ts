@@ -78,8 +78,9 @@ describe('executeWorkflow', () => {
   it('stops on the first failure by default, marking the rest skipped with a §94-style error', async () => {
     const calls: string[] = [];
     const { reg } = registry(calls, { failAlways: 'risky.send' });
-    const err = await run([{ action: 'safe.open' }, { action: 'risky.send' }, { capture: { id: 'never' } }], reg).catch((e) => e as WorkflowStepFailure);
+    const err = await run([{ action: 'safe.open' }, { action: 'risky.send' }, { capture: { id: 'never' } }], reg).then(() => undefined, (e: unknown) => e as WorkflowStepFailure);
     expect(err).toBeInstanceOf(WorkflowStepFailure);
+    if (!err) return;
     expect(err.error).toMatchObject({ code: 'action_failed', message: 'risky.send boom', stepIndex: 1, actionId: 'risky.send' });
     expect(err.steps.map((s) => s.status)).toEqual(['completed', 'failed', 'skipped']);
   });
@@ -97,8 +98,8 @@ describe('executeWorkflow', () => {
   it('rejects invalid action params without calling the action', async () => {
     const calls: string[] = [];
     const { reg } = registry(calls);
-    const err = await run([{ action: 'safe.open', params: { name: 42 } }], reg).catch((e) => e as WorkflowStepFailure);
-    expect(err.error.code).toBe('invalid_action_params');
+    const err = await run([{ action: 'safe.open', params: { name: 42 } }], reg).then(() => undefined, (e: unknown) => e as WorkflowStepFailure);
+    expect(err?.error.code).toBe('invalid_action_params');
     expect(calls).toEqual([]);
   });
 
