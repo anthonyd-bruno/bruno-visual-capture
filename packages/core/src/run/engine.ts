@@ -265,7 +265,9 @@ export class RunEngine {
         if (recording instanceof NativeRecordingController) {
           const seg = recording.segments()[0];
           if (!seg || seg.frames === 0) { const e = new Error('The native recording contains no frames') as Error & { code: string; hint: string }; e.code = 'recording_empty'; e.hint = 'Keep the Bruno window on screen while recording.'; throw e; }
-          const scale = capture.height ? { width: capture.width * Math.round(seg.scale), height: capture.height * Math.round(seg.scale) } : undefined;
+          // Presets are CSS px: downscale retina captures to the window's CSS size unless the preset asks for device px.
+          const cssHeight = capture.height ?? Math.round((seg.height * capture.width) / seg.width);
+          const scale = capture.scale === 'css' ? { width: capture.width, height: cssHeight } : { width: seg.width, height: seg.height };
           mp4 = await transcodeToMp4({ input: seg.file, out: path.join(work, `${def.id}.mp4`), fps: 30, scale, signal });
           log(`transcoded native ${seg.width}×${seg.height} (${seg.frames} frames) → ${mp4.probe.width}×${mp4.probe.height} ${mp4.probe.fps} fps, ${((mp4.probe.durationMs ?? 0) / 1000).toFixed(1)} s`);
         } else {

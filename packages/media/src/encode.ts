@@ -147,6 +147,14 @@ export async function mp4ToGif(opts: GifOptions): Promise<EncodeResult> {
   return { file: opts.out, probe: await probeMedia(opts.out, ffprobe) };
 }
 
+/** Downscale a PNG (e.g. a retina window capture) to exact CSS-pixel dimensions with Lanczos. */
+export async function resizePng(input: string, out: string, width: number, height: number, ffmpegPath?: string): Promise<string> {
+  const { ffmpeg } = await ffmpegBinary(ffmpegPath);
+  await mkdir(path.dirname(out), { recursive: true });
+  await runFFmpeg(ffmpeg, ['-i', input, '-vf', `scale=${width}:${height}:flags=lanczos`, '-frames:v', '1', out]);
+  return out;
+}
+
 /** Grab one PNG frame (thumbnails, tests). */
 export async function extractFrame(input: string, out: string, atSeconds = 0, ffmpegPath?: string): Promise<string> {
   const { ffmpeg } = await ffmpegBinary(ffmpegPath);

@@ -228,3 +228,14 @@ profile mode.
 - **Not yet verified live:** `windows`, `still`, `record` all need Screen Recording granted. The
   grant attaches to the *responsible process* (the terminal/app that spawns node → the helper), so it
   must be approved once per host app; `bru-capture helper request` shows the prompt.
+
+## Phase 5b — native paths verified live (after the Screen Recording grant)
+
+- `preflight` → granted; `windows --onscreen` enumerated 15 windows with app/bundle/frame metadata.
+- Full App Window **screenshots** through `still`: retina window → 3200×2000 PNG, downscaled to the
+  preset's CSS size (1600×1000) because presets are CSS px (`scale: 'css'`).
+- Full App Window **video** through `record`: 67 frames / 2.3 s `.mov` at 3840×2160 → `transcodeToMp4`
+  → 1920×1080, 30/1 CFR H.264, 68 frames, 100 KB. The frame shows Bruno's window alone — no other
+  desktop content (§49) — with the synthetic cursor in frame. Whole run 7.4 s including launch.
+- TCC attribution confirmed as predicted in S4: the grant attached to the host app that spawned node,
+  not to the helper bundle. Ad-hoc signing means a changed helper binary needs re-approval.
