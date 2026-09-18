@@ -508,9 +508,10 @@ Built and verified against Bruno 4.1.0 on this machine — see `docs/spike-resul
 - **Phase 5** renderer path complete: `ScreencastRecorder` (CDP) → `RendererRecordingController`
   (whole-workflow or bounded, region/locator crop) → `packages/media` FFmpeg adapter (CFR 30 fps H.264
   MP4, palette GIF at 15 fps, crop/scale/pad, `-t` timeline trim) → engine `processing` state with
-  intermediates preserved on failure. Verified live for MP4 and GIF. Outstanding: synthetic cursor
-  overlay (§58), ScreenCaptureKit helper for Full App Window video (§49/§61; compiles, needs the
-  Screen Recording prompt approved at the keyboard).
+  intermediates preserved on failure. Verified live for MP4 and GIF. Synthetic cursor (§58) done as an
+  in-page overlay routed through every action click/hover (D5), verified in recorded frames.
+  Outstanding: ScreenCaptureKit helper for Full App Window video (§49/§61; compiles, needs the Screen
+  Recording prompt approved at the keyboard and a signing identity decision).
 - **Phase 6** not started: AI providers/Keychain.
 - **Phase 7** partial: Library list/filters, download, delete, Regenerate Latest. Outstanding:
   Regenerate Exact from the snapshot, ZIP, Reveal in Finder, artifact detail metadata.

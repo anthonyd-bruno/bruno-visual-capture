@@ -13,10 +13,10 @@ export const environmentSelect = defineAction({
     const trigger = ctx.page.locator(TRIGGER).first();
     await expectVisible('environment.select', 'The environment selector', trigger, ctx.timeoutMs, 'Open a collection first.');
     if ((await trigger.innerText()).trim().includes(p.name)) { ctx.log(`environment "${p.name}" already selected`); return; }
-    await trigger.click();
+    await ctx.cursor.click(trigger);
     const item = ctx.page.locator('[data-testid="env-list-item"]', { hasText: p.name }).first();
     await expectVisible('environment.select', `Environment "${p.name}"`, item, ctx.timeoutMs, 'Check the environment name in the fixture\'s environments/ folder.');
-    await item.click();
+    await ctx.cursor.click(item);
     try {
       await ctx.page.waitForFunction(([sel, name]) => (document.querySelector(sel!)?.textContent ?? '').includes(name!), [TRIGGER, p.name] as const, { timeout: ctx.timeoutMs });
     } catch (e) {
@@ -35,10 +35,10 @@ export const environmentOpenEditor = defineAction({
   async execute(ctx) {
     const trigger = ctx.page.locator(TRIGGER).first();
     await expectVisible('environment.openEditor', 'The environment selector', trigger, ctx.timeoutMs);
-    await trigger.click();
+    await ctx.cursor.click(trigger);
     const configure = ctx.page.locator('[data-testid="configure-env"]');
     await expectVisible('environment.openEditor', 'The "Configure" button', configure, ctx.timeoutMs);
-    await configure.click();
+    await ctx.cursor.click(configure);
     await expectVisible('environment.openEditor', 'The environment editor', ctx.page.locator('[data-testid="save-env"], [data-testid="env-var-name-input"]').first(), ctx.timeoutMs);
     ctx.log('environment editor open');
   },

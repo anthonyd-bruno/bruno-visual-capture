@@ -12,13 +12,13 @@ export const runnerOpen = defineAction({
   async execute(ctx, p) {
     const row = collectionRow(ctx, p.collection);
     await expectVisible('runner.open', p.collection ? `Collection "${p.collection}"` : 'A collection row', row, ctx.timeoutMs);
-    await row.hover();
+    await ctx.cursor.hover(row);
     const actions = row.locator('[data-testid="collection-actions"]').first().or(ctx.page.locator('[data-testid="collection-actions"]').first());
     await expectVisible('runner.open', 'The collection actions menu button', actions, ctx.timeoutMs);
-    await actions.click();
+    await ctx.cursor.click(actions);
     const run = ctx.page.locator('[data-testid="collection-actions-run"]');
     await expectVisible('runner.open', 'The "Run" menu item', run, ctx.timeoutMs);
-    await run.click();
+    await ctx.cursor.click(run);
     await expectVisible('runner.open', 'The Runner', ctx.page.locator('[data-testid="runner-run-button"]'), ctx.timeoutMs);
     ctx.log('runner open');
   },
@@ -36,12 +36,12 @@ export const runnerRunCollection = defineAction({
     if (!(await runBtn.isEnabled())) {
       // Measured: the button is disabled when nothing is selected and select-all is a toggle,
       // so only touch it in that state.
-      await ctx.page.locator('[data-testid="runner-select-all"]').click();
+      await ctx.cursor.click(ctx.page.locator('[data-testid="runner-select-all"]'));
       try { await runBtn.and(ctx.page.locator(':enabled')).waitFor({ timeout: 5000 }); }
       catch (e) { throw new ActionError('runner.runCollection', 'No runnable requests in this collection (run button stayed disabled after select-all)', 'Check that the fixture requests are valid YAML.', e); }
       ctx.log('selected all requests');
     }
-    await runBtn.click();
+    await ctx.cursor.click(runBtn);
     try {
       await Promise.race([
         ctx.page.locator('[data-testid="runner-cancel-button"]').waitFor({ state: 'visible', timeout: ctx.timeoutMs }),

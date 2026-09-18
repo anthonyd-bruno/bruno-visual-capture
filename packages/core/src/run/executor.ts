@@ -1,5 +1,5 @@
 import type { ActionContext, ActionRegistry, BrunoSession } from '@bruno-capture/automation';
-import { resolveTarget, waitForState } from '@bruno-capture/automation';
+import { CursorController, resolveTarget, waitForState } from '@bruno-capture/automation';
 import {
   stepKind, type CaptureConfig, type ResolvedParameters, type RunError, type RunEvent, type Step, type StepRecord, type WorkflowDefinition,
 } from '@bruno-capture/shared';
@@ -31,6 +31,8 @@ export interface ExecutorDeps {
   suspendPreview?<T>(fn: () => Promise<T>): Promise<T>;
   /** PRD §50 default: record the entire workflow when it declares no startRecording/stopRecording. */
   autoRecord?: boolean;
+  /** Synthetic cursor (PRD §58); a hidden controller is used when absent. */
+  cursor?: CursorController;
 }
 
 export interface ExecutionResult {
@@ -123,8 +125,9 @@ export async function executeWorkflow(deps: ExecutorDeps): Promise<ExecutionResu
     deps.log('recording the whole workflow (no explicit recording bounds)');
   }
 
+  const cursor = deps.cursor ?? new CursorController(page, 'hidden');
   const actionCtx: ActionContext = {
-    session, page, signal, parameters: deps.parameters, workspacePath: deps.workspacePath, timeoutMs,
+    session, page, signal, parameters: deps.parameters, workspacePath: deps.workspacePath, timeoutMs, cursor,
     log: (m) => deps.log(m),
   };
 
@@ -223,8 +226,8 @@ export async function executeWorkflow(deps: ExecutorDeps): Promise<ExecutionResu
           const loc = page.locator(s.locator).first();
           await loc.waitFor({ state: 'visible', timeout: timeoutMs });
           switch (s.operation) {
-            case 'click': return loc.click();
-            case 'hover': return loc.hover();
+            case 'click': return cursor.click(loc);
+            case 'hover': return cursor.hover(loc);
             case 'fill': return loc.fill(s.value ?? '');
             case 'press': return loc.press(s.value ?? '');
             case 'selectOption': { await loc.selectOption(s.value ?? ''); return; }

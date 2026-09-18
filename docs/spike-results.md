@@ -193,3 +193,15 @@ profile mode.
 - **Design correction:** the first GIF attempt resized Bruno's *window* to 1000×625. PRD §54 means
   "1000 px wide output, height from the capture aspect" — the engine now records at 1600×1000 (or the
   overrides) and downscales; `capture.outputWidth` carries the GIF width in the manifest.
+
+## Phase 5 — synthetic cursor (measured)
+
+- Implemented as an in-page overlay (`packages/automation/src/cursor/`): fixed `div`, `pointer-events:none`,
+  SVG arrow with the hotspot at its tip, installed via `addInitScript` (survives the theme reload) plus
+  `evaluate` for the live document. Motion is a requestAnimationFrame ease-in-out in the page while the
+  real mouse follows with a stepped `mouse.move`, so hover states match the drawn pointer.
+- Because it lives in the renderer it appears identically in screenshots, screencast frames and the
+  live preview with no compositing; the macOS pointer is never in frame (App Content Only).
+- Demo Video run: 1920×1080, 63 frames, 2.1 s; the arrow is visible and moving between the 0.00 s and
+  0.12 s frames of the recording (montage in the scratch home). Move duration 200–350 ms by distance
+  (`moveDurationMs`), 120 ms press pulse on click in `smooth` mode; `visible` jumps; `hidden` injects nothing.

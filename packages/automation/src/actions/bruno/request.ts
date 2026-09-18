@@ -11,7 +11,7 @@ export const requestOpen = defineAction({
   async execute(ctx, p) {
     const item = ctx.page.locator(SIDEBAR_ITEM, { hasText: p.name }).first();
     await expectVisible('request.open', `Request "${p.name}" in the sidebar`, item, ctx.timeoutMs, 'Open its collection first (collection.open).');
-    await item.click();
+    await ctx.cursor.click(item);
     await expectVisible('request.open', 'The request editor', ctx.page.locator('[data-testid="request-pane"]'), ctx.timeoutMs);
     ctx.log(`request "${p.name}" open`);
   },
@@ -26,7 +26,7 @@ export const requestSend = defineAction({
   async execute(ctx, p) {
     const pane = ctx.page.locator('[data-testid="request-pane"]');
     await expectVisible('request.send', 'An open request', pane, ctx.timeoutMs, 'Run request.open first.');
-    await pane.click({ position: { x: 10, y: 10 } });
+    await ctx.cursor.click(pane, { position: { x: 10, y: 10 } });
     await ctx.page.keyboard.press('Meta+Enter');
     const status = ctx.page.locator('[data-testid="response-status-code"]');
     try {

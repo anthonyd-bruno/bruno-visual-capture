@@ -1,5 +1,6 @@
 import type { Locator, Page } from 'playwright';
 import type { z } from 'zod';
+import type { CursorController } from '../cursor/controller.js';
 import type { BrunoSession } from '../launcher.js';
 
 /** D11 locator ladder rung used by an action — surfaced as debt in the registry. */
@@ -17,6 +18,8 @@ export interface ActionContext {
   workspacePath?: string;
   /** Default postcondition timeout. */
   timeoutMs: number;
+  /** PRD §58: every user-visible click/hover goes through the synthetic cursor. */
+  cursor: CursorController;
 }
 
 /** PRD §36 contract, plus what the runner needs to schedule and report it. */

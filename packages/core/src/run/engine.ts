@@ -3,7 +3,7 @@ import path from 'node:path';
 import { ulid } from 'ulid';
 import { detectFFmpeg, encodeFramesToMp4, mp4ToGif } from '@bruno-capture/media';
 import {
-  BrunoAlreadyRunningError, addCollectionToUserWorkspace, findRunningBruno, launchBruno, quitBrunoGracefully, seedCaptureProfile, setContentSize, setTheme,
+  BrunoAlreadyRunningError, CursorController, addCollectionToUserWorkspace, findRunningBruno, launchBruno, quitBrunoGracefully, seedCaptureProfile, setContentSize, setTheme,
   type ActionRegistry, type BrunoCandidate, type BrunoSession,
 } from '@bruno-capture/automation';
 import {
@@ -215,7 +215,9 @@ export class RunEngine {
       rec.manifest.bruno.version = session.version ?? rec.manifest.bruno.version;
       await setContentSize(session, { width: capture.width, height: capture.height ?? Math.round((capture.width * 10) / 16) });
       await setTheme(session, capture.theme);
-      log(`Bruno ${session.version ?? '?'} ready: ${capture.width}×${capture.height ?? '?'} ${capture.theme}`);
+      const cursor = new CursorController(session.page, capture.cursor, { log });
+      await cursor.install({ width: capture.width, height: capture.height ?? Math.round((capture.width * 10) / 16) });
+      log(`Bruno ${session.version ?? '?'} ready: ${capture.width}×${capture.height ?? '?'} ${capture.theme}, cursor ${capture.cursor}`);
 
       this.setStatus(rec, 'running');
       const captureCtl = new CaptureController(session);
@@ -243,7 +245,7 @@ export class RunEngine {
       }
       const result = await executeWorkflow({
         runId, definition: def, parameters: params, captureConfig: capture, session, actions: this.deps.actions, capture: captureCtl,
-        recording, autoRecord: isRecording,
+        recording, autoRecord: isRecording, cursor,
         artifacts: rec.artifacts, emit: (e) => rec.bus.emit(e), log, signal, workspacePath: rec.staged?.workspacePath,
         suspendPreview: async (fn) => { previewSuspended++; try { return await fn(); } finally { previewSuspended--; } },
       });

@@ -14,7 +14,7 @@ export const collectionOpen = defineAction({
     const row = ctx.page.locator(SIDEBAR_ROW, { hasText: p.name }).first();
     await expectVisible('collection.open', `Collection "${p.name}" in the sidebar`, row, ctx.timeoutMs,
       'Check the fixture collection name and that the workspace was seeded with it.');
-    await row.click();
+    await ctx.cursor.click(row);
     const header = ctx.page.locator('[data-testid="collection-header"]').first();
     const items = ctx.page.locator(SIDEBAR_ITEM).first();
     try {
