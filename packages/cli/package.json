@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@bruno-capture/ai": "workspace:*",
+    "@bruno-capture/automation": "workspace:*",
     "@bruno-capture/core": "workspace:*",
     "@bruno-capture/server": "workspace:*",
     "@bruno-capture/shared": "workspace:*"

@@ -260,6 +260,9 @@ importers:
       '@bruno-capture/ai':
         specifier: workspace:*
         version: link:../ai
+      '@bruno-capture/automation':
+        specifier: workspace:*
+        version: link:../automation
       '@bruno-capture/core':
         specifier: workspace:*
         version: link:../core

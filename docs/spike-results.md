@@ -205,3 +205,26 @@ profile mode.
 - Demo Video run: 1920×1080, 63 frames, 2.1 s; the arrow is visible and moving between the 0.00 s and
   0.12 s frames of the recording (montage in the scratch home). Move duration 200–350 ms by distance
   (`moveDurationMs`), 120 ms press pulse on click in `smooth` mode; `visible` jumps; `hidden` injects nothing.
+
+## Phase 5b — ScreenCaptureKit helper (built; permission pending)
+
+- `native/macos-capture-helper/Sources/main.swift` builds with `swiftc` + CommandLineTools into
+  `build/Bruno Capture Helper.app` (bundle id `com.usebruno.capture.helper`, `LSUIElement`, ad-hoc
+  signed with the hardened-runtime flag by default; `--sign "<identity>"` or `BRU_CAPTURE_SIGN_IDENTITY`
+  for a Developer ID). `pnpm helper:build -- --install` copies it to
+  `~/Library/Application Support/Bruno Capture/bin/`.
+- Line-delimited JSON protocol: `preflight` (never prompts), `request` (shows the macOS prompt),
+  `windows [--bundle id] [--pid n] [--onscreen]`, `still --window <CGWindowID> --out f.png`
+  (`SCScreenshotManager`, cursor hidden, shadow ignored, retina-scaled), `record --window id --out f.mov
+  [--fps n]` (`SCStream` → `AVAssetWriter` H.264 `.mov`; emits `started`/`progress`; `stop` on stdin or
+  SIGINT/SIGTERM finishes the file and prints frames/duration). SCK errors -3801/-3802 map to
+  `permission_denied` with a remediation hint.
+- Node side: `CaptureHelper` (`packages/automation/src/native/helper.ts`) with `locate()` over
+  `BRU_CAPTURE_HELPER`, the app-support install and the repo build; `NativeRecordingController` in core;
+  engine picks native for `full-window` video/GIF and transcodes the `.mov` through `transcodeToMp4`;
+  `CaptureController` uses `still` for Full App Window screenshots with `screencapture -l` as fallback;
+  System Status and `bru-capture doctor` now report **action-required** (denied) vs **unavailable**
+  (helper missing) from a real preflight.
+- **Not yet verified live:** `windows`, `still`, `record` all need Screen Recording granted. The
+  grant attaches to the *responsible process* (the terminal/app that spawns node → the helper), so it
+  must be approved once per host app; `bru-capture helper request` shows the prompt.

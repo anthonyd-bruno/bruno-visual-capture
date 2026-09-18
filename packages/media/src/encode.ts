@@ -101,6 +101,30 @@ export async function encodeFramesToMp4(opts: EncodeVideoOptions): Promise<Encod
   return { file: opts.out, probe: await probeMedia(opts.out, ffprobe) };
 }
 
+export interface TranscodeOptions {
+  input: string;
+  out: string;
+  fps?: number;
+  crop?: CropRect;
+  scale?: { width: number; height: number };
+  ffmpegPath?: string;
+  signal?: AbortSignal;
+}
+
+/** Native helper `.mov` (variable frame rate, retina-sized) → the same MP4 contract as the renderer path. */
+export async function transcodeToMp4(opts: TranscodeOptions): Promise<EncodeResult> {
+  const fps = opts.fps ?? 30;
+  const { ffmpeg, ffprobe } = await ffmpegBinary(opts.ffmpegPath);
+  await mkdir(path.dirname(opts.out), { recursive: true });
+  await runFFmpeg(ffmpeg, [
+    '-i', opts.input,
+    '-vf', videoFilters(fps, opts.crop, opts.scale),
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+    '-r', String(fps), '-fps_mode', 'cfr', '-movflags', '+faststart', '-an', opts.out,
+  ], opts.signal);
+  return { file: opts.out, probe: await probeMedia(opts.out, ffprobe) };
+}
+
 export interface GifOptions {
   input: string;
   out: string;

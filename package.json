@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "helper:build": "native/macos-capture-helper/build.sh",
     "workflows:validate": "pnpm --filter @bruno-capture/cli run start -- workflows validate"
   },
   "devDependencies": {

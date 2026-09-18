@@ -1,7 +1,7 @@
 import {
   RunEngine, SettingsStore, WorkflowRegistry, WorkflowSourcesStore, WorkflowWatcher, appPaths, builtInWorkflowsDir, bundledFixturesDir, checkSystemStatus, resolveBruno, type AppPaths,
 } from '@bruno-capture/core';
-import { createDefaultActionRegistry } from '@bruno-capture/automation';
+import { CaptureHelper, createDefaultActionRegistry } from '@bruno-capture/automation';
 import type { SystemStatus } from '@bruno-capture/shared';
 
 /** Everything routes need. One instance per server; the CLI builds the same thing (PRD §92). */
@@ -42,7 +42,10 @@ export async function createContext(opts: CreateContextOptions = {}): Promise<Se
   const aiKeyPresence = () => ({ openai: Boolean(process.env.OPENAI_API_KEY), anthropic: Boolean(process.env.ANTHROPIC_API_KEY) });
   return {
     paths, settings, sources, registry, watcher, engine, fixturesDir, aiKeyPresence, log,
-    systemStatus: () => checkSystemStatus({ settings: settings.get(), paths, aiKeys: aiKeyPresence(), workflowRegistry: registry.stats() }),
+    systemStatus: () => checkSystemStatus({
+      settings: settings.get(), paths, aiKeys: aiKeyPresence(), workflowRegistry: registry.stats(),
+      screenRecording: async () => { const h = await CaptureHelper.locate(paths.binDir); if (!h) return 'helper-missing'; return (await h.preflight().catch(() => false)) ? 'granted' : 'denied'; },
+    }),
     shutdown: async () => { await watcher?.stop(); await engine.shutdown(); },
   };
 }

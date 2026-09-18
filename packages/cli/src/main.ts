@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import { appPaths, checkSystemStatus, RunConflictError, RunValidationError, SettingsStore } from '@bruno-capture/core';
 import { createContext, startServer } from '@bruno-capture/server';
+import { CaptureHelper } from '@bruno-capture/automation';
 import type { ComponentStatus, OutputType, RunEvent } from '@bruno-capture/shared';
 
 const USAGE = `bru-capture — visual capture automation for the Bruno desktop app
@@ -11,6 +12,7 @@ Usage:
   bru-capture workflows list       list registered workflows
   bru-capture workflows validate   validate every registered workflow (exit 1 if any is invalid)
   bru-capture workflow add <yaml>  import a workflow file (kept in place)
+  bru-capture helper request       ask macOS for Screen Recording permission (shows the system prompt)
   bru-capture run <workflowId> --output <screenshots|video|gif> [--preset <id>] [--param k=v ...]
                                    [--relaunch] run a workflow and stream progress
 
@@ -32,6 +34,7 @@ async function doctor(json: boolean): Promise<number> {
   const status = await checkSystemStatus({
     settings: settings.get(), paths,
     aiKeys: { openai: Boolean(process.env.OPENAI_API_KEY), anthropic: Boolean(process.env.ANTHROPIC_API_KEY) },
+    screenRecording: async () => { const h = await CaptureHelper.locate(paths.binDir); if (!h) return 'helper-missing'; return (await h.preflight().catch(() => false)) ? 'granted' : 'denied'; },
   });
   if (json) { console.log(JSON.stringify(status, null, 2)); return 0; }
   console.log(`Bruno Capture doctor — ${status.checkedAt}\n`);
@@ -163,6 +166,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     case 'workflows': return workflows(sub, values.json ?? false);
     case 'workflow': return sub === 'add' ? workflowAdd(third) : (console.error(USAGE), 2);
     case 'run': return run(sub, values);
+    case 'helper': {
+      const h = await CaptureHelper.locate(appPaths().binDir);
+      if (!h) { console.error('Native capture helper not installed. Build it with: pnpm helper:build -- --install'); return 2; }
+      if (sub === 'request') { const granted = await h.requestAccess(); console.log(granted ? 'Screen Recording: granted' : 'Screen Recording: not granted yet — approve the prompt (or enable it in System Settings), then run `bru-capture doctor`.'); return granted ? 0 : 3; }
+      console.log(`helper: ${h.binary}\npreflight: ${(await h.preflight()) ? 'granted' : 'not granted'}`); return 0;
+    }
     default:
       console.error(`unknown command: ${cmd}\n`); console.log(USAGE); return 2;
   }

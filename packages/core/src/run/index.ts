@@ -5,3 +5,4 @@ export * from './capture.js';
 export * from './executor.js';
 export * from './engine.js';
 export * from './recording.js';
+export * from './native-recording.js';

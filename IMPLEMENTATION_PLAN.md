@@ -510,8 +510,10 @@ Built and verified against Bruno 4.1.0 on this machine — see `docs/spike-resul
   MP4, palette GIF at 15 fps, crop/scale/pad, `-t` timeline trim) → engine `processing` state with
   intermediates preserved on failure. Verified live for MP4 and GIF. Synthetic cursor (§58) done as an
   in-page overlay routed through every action click/hover (D5), verified in recorded frames.
-  Outstanding: ScreenCaptureKit helper for Full App Window video (§49/§61; compiles, needs the Screen
-  Recording prompt approved at the keyboard and a signing identity decision).
+  ScreenCaptureKit helper (§49/§61) built, installed and wired end to end (native recording controller,
+  helper-first Full App Window stills, real Screen Recording status, `bru-capture helper request`);
+  its live paths await the one-time Screen Recording approval and a signing-identity decision
+  (ad-hoc now, so the grant resets when the helper binary changes).
 - **Phase 6** not started: AI providers/Keychain.
 - **Phase 7** partial: Library list/filters, download, delete, Regenerate Latest. Outstanding:
   Regenerate Exact from the snapshot, ZIP, Reveal in Finder, artifact detail metadata.

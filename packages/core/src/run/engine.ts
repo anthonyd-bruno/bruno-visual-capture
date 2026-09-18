@@ -1,9 +1,9 @@
 import { mkdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { ulid } from 'ulid';
-import { detectFFmpeg, encodeFramesToMp4, mp4ToGif } from '@bruno-capture/media';
+import { detectFFmpeg, encodeFramesToMp4, mp4ToGif, transcodeToMp4 } from '@bruno-capture/media';
 import {
-  BrunoAlreadyRunningError, CursorController, addCollectionToUserWorkspace, findRunningBruno, launchBruno, quitBrunoGracefully, seedCaptureProfile, setContentSize, setTheme,
+  BrunoAlreadyRunningError, CaptureHelper, CursorController, addCollectionToUserWorkspace, findRunningBruno, launchBruno, quitBrunoGracefully, seedCaptureProfile, setContentSize, setTheme,
   type ActionRegistry, type BrunoCandidate, type BrunoSession,
 } from '@bruno-capture/automation';
 import {
@@ -19,6 +19,7 @@ import { RunEventBus } from './events.js';
 import { executeWorkflow, RunCancelled, WorkflowStepFailure } from './executor.js';
 import { stageFixture, type StagedFixture } from './fixtures.js';
 import { RendererRecordingController } from './recording.js';
+import { NativeRecordingController } from './native-recording.js';
 
 export class RunConflictError extends Error {
   readonly code = 'run_conflict';
@@ -220,16 +221,19 @@ export class RunEngine {
       log(`Bruno ${session.version ?? '?'} ready: ${capture.width}×${capture.height ?? '?'} ${capture.theme}, cursor ${capture.cursor}`);
 
       this.setStatus(rec, 'running');
-      const captureCtl = new CaptureController(session);
+      const helper = await CaptureHelper.locate(this.deps.paths.binDir);
+      const captureCtl = new CaptureController(session, helper);
       const isRecording = capture.output === 'video' || capture.output === 'gif';
-      if (isRecording && capture.framing === 'full-window') {
-        const e = new Error('Full App Window video needs the native capture helper (Phase 5b); use App Content Only or a region') as Error & { code: string };
-        e.code = 'recording_unsupported'; throw e;
-      }
       const framesRoot = path.join(this.deps.paths.tmpDir, runId, 'frames');
-      const recording = isRecording
-        ? new RendererRecordingController(session, { framesRoot, viewport: { width: capture.width, height: capture.height ?? Math.round((capture.width * 10) / 16) }, log })
-        : undefined;
+      let recording: RendererRecordingController | NativeRecordingController | undefined;
+      if (isRecording && capture.framing === 'full-window') {
+        if (!helper) { const e = new Error('Full App Window video needs the native capture helper, which is not installed') as Error & { code: string; hint: string }; e.code = 'helper_missing'; e.hint = 'Run `pnpm helper:build -- --install`, then allow Screen Recording when macOS asks.'; throw e; }
+        if (!(await helper.preflight())) { const e = new Error('Screen Recording permission has not been granted') as Error & { code: string; hint: string }; e.code = 'permission_denied'; e.hint = 'Allow Screen Recording for the app running Bruno Capture in System Settings › Privacy & Security, then retry.'; throw e; }
+        await mkdir(framesRoot, { recursive: true });
+        recording = new NativeRecordingController(session, helper, { framesRoot, fps: 30, log });
+      } else if (isRecording) {
+        recording = new RendererRecordingController(session, { framesRoot, viewport: { width: capture.width, height: capture.height ?? Math.round((capture.width * 10) / 16) }, log });
+      }
       let previewSuspended = 0;
       if (settings.capture.previewEnabled) {
         let inFlight = false;
@@ -255,15 +259,24 @@ export class RunEngine {
       stopPreview?.(); stopPreview = undefined;
       if (recording) {
         signal.throwIfAborted();
-        const seg = recording.segments()[0];
-        if (!seg || seg.frames.length === 0) {
-          const e = new Error('The recording contains no frames') as Error & { code: string; hint: string };
-          e.code = 'recording_empty'; e.hint = 'Make sure something changes on screen between startRecording and stopRecording.'; throw e;
-        }
         const work = path.join(this.deps.paths.tmpDir, runId, 'media');
         await mkdir(work, { recursive: true });
-        const mp4 = await encodeFramesToMp4({ frames: seg.frames, startAt: seg.startedAt, stopAt: seg.stoppedAt, out: path.join(work, `${def.id}.mp4`), fps: 30, crop: seg.crop, signal });
-        log(`encoded ${mp4.probe.width}×${mp4.probe.height} ${mp4.probe.fps} fps, ${((mp4.probe.durationMs ?? 0) / 1000).toFixed(1)} s from ${seg.frames.length} frames`);
+        let mp4;
+        if (recording instanceof NativeRecordingController) {
+          const seg = recording.segments()[0];
+          if (!seg || seg.frames === 0) { const e = new Error('The native recording contains no frames') as Error & { code: string; hint: string }; e.code = 'recording_empty'; e.hint = 'Keep the Bruno window on screen while recording.'; throw e; }
+          const scale = capture.height ? { width: capture.width * Math.round(seg.scale), height: capture.height * Math.round(seg.scale) } : undefined;
+          mp4 = await transcodeToMp4({ input: seg.file, out: path.join(work, `${def.id}.mp4`), fps: 30, scale, signal });
+          log(`transcoded native ${seg.width}×${seg.height} (${seg.frames} frames) → ${mp4.probe.width}×${mp4.probe.height} ${mp4.probe.fps} fps, ${((mp4.probe.durationMs ?? 0) / 1000).toFixed(1)} s`);
+        } else {
+          const seg = recording.segments()[0];
+          if (!seg || seg.frames.length === 0) {
+            const e = new Error('The recording contains no frames') as Error & { code: string; hint: string };
+            e.code = 'recording_empty'; e.hint = 'Make sure something changes on screen between startRecording and stopRecording.'; throw e;
+          }
+          mp4 = await encodeFramesToMp4({ frames: seg.frames, startAt: seg.startedAt, stopAt: seg.stoppedAt, out: path.join(work, `${def.id}.mp4`), fps: 30, crop: seg.crop, signal });
+          log(`encoded ${mp4.probe.width}×${mp4.probe.height} ${mp4.probe.fps} fps, ${((mp4.probe.durationMs ?? 0) / 1000).toFixed(1)} s from ${seg.frames.length} frames`);
+        }
         if (capture.output === 'video') {
           const a = await rec.artifacts.addMedia('video', mp4.file, def.id, { width: mp4.probe.width, height: mp4.probe.height, durationMs: mp4.probe.durationMs, fps: mp4.probe.fps });
           rec.bus.emit({ type: 'artifact.created', runId, at: new Date().toISOString(), artifact: a });

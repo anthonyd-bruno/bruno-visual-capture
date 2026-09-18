@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { resolveTarget, type BrunoSession } from '@bruno-capture/automation';
+import { resolveTarget, type BrunoSession, type CaptureHelper } from '@bruno-capture/automation';
 import type { Framing } from '@bruno-capture/shared';
 
 const execFileP = promisify(execFile);
@@ -27,7 +27,7 @@ export class CaptureError extends Error {
  * helper lands in Phase 5; the window id comes from `BrowserWindow#getMediaSourceId()` (measured S1).
  */
 export class CaptureController {
-  constructor(private readonly session: BrunoSession) {}
+  constructor(private readonly session: BrunoSession, private readonly helper?: CaptureHelper) {}
 
   async screenshot(req: ScreenshotRequest): Promise<Buffer> {
     const page = this.session.page;
@@ -57,6 +57,10 @@ export class CaptureController {
     try {
       await this.session.app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.show(); w.focus(); });
       await this.session.page.waitForTimeout(150);
+      if (this.helper) {
+        try { await this.helper.still(this.session.windowId, file); return await readFile(file); }
+        catch (e) { if ((e as { code?: string }).code === 'permission_denied') throw new CaptureError((e as Error).message, (e as { hint?: string }).hint, e); /* else fall through to screencapture */ }
+      }
       await execFileP('/usr/sbin/screencapture', ['-l', String(this.session.windowId), '-o', '-x', '-t', 'png', file], { timeout: 15_000 });
       const png = await readFile(file);
       if (png.length < 1000) throw new CaptureError('screencapture produced an empty image — Screen Recording permission is probably missing', 'Allow Screen Recording for the terminal/app running Bruno Capture in System Settings › Privacy & Security.');
