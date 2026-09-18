@@ -255,3 +255,14 @@ profile mode.
   with no provider configured (`/api/plan` → `ok:false`, `provider_not_configured`, suggestions), and
   the UI shows the remediation + "Likely workflows". A real provider round-trip needs an API key
   (Settings › AI or `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`).
+
+## Phase 7 — Library & regeneration (measured)
+
+- `engine.regenerate(runId, 'exact')` parses the run's `workflow.yaml` snapshot into a synthetic
+  registry entry and reuses the normal pipeline with the saved parameters and capture config; the new
+  run's snapshot is identical to the source's (verified byte-for-byte) and `regenerateOf` is recorded.
+  `'latest'` runs `assessRegenerateLatest` (unit-tested) and returns `{kind:'review'}` with a prefill
+  instead of running when the definition drifted.
+- ZIPs are streamed with `yazl` (screenshots deflated, media stored) and always include `manifest.json`;
+  selections are validated against the manifest's artifact paths. Reveal/Open use `/usr/bin/open`
+  with paths confined to the run directory.

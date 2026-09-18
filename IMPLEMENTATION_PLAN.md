@@ -525,8 +525,13 @@ Built and verified against Bruno 4.1.0 on this machine — see `docs/spike-resul
   entry + Test. 13 contract tests on recorded/fake providers (valid, invalid schema, unsupported
   workflow, invalid parameter, malformed, repair, fallback, auth-no-bounce) — no live API calls in CI.
   **Not yet exercised against a live provider** (no API key on this machine).
-- **Phase 7** partial: Library list/filters, download, delete, Regenerate Latest. Outstanding:
-  Regenerate Exact from the snapshot, ZIP, Reveal in Finder, artifact detail metadata.
+- **Phase 7** complete: Library (newest first; feature / workflow / output filters), single downloads,
+  Copy, ZIP of all or selected artifacts with the manifest included (§74), Open File and Reveal in
+  Finder (§78), delete with confirmation, the §78 detail table, **Regenerate Exact** from the run's
+  own `workflow.yaml` snapshot and **Regenerate Latest** with the §71 review rule (removed/retyped/
+  invalid parameter, new required parameter, dropped output → Capture form prefilled with the saved
+  values and the reasons). Both verified live: exact reproduced the first run byte-for-byte from its
+  snapshot; latest completed against the current definition.
 
 **Deviation to note:** in `profileMode: 'user'` the bundled fixture is copied to a stable
 `~/Library/Application Support/Bruno Capture/runtime-fixtures/<fixture>` (refreshed each run) rather

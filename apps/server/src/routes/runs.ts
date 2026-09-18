@@ -1,7 +1,9 @@
 import { createReadStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { RunConflictError, RunValidationError } from '@bruno-capture/core';
+import { execFile } from 'node:child_process';
+import { RunConflictError, RunNotFoundError, RunValidationError } from '@bruno-capture/core';
+import { ZipFile } from 'yazl';
 import { CreateRunRequestSchema } from '@bruno-capture/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
@@ -86,25 +88,67 @@ export function registerRunRoutes(app: FastifyInstance, ctx: ServerContext): voi
 
   const Regenerate = z.strictObject({ mode: z.enum(['exact', 'latest']), cancelActive: z.boolean().default(false), allowRelaunch: z.boolean().default(false) });
   app.post<{ Params: { id: string } }>('/api/runs/:id/regenerate', async (req, reply) => {
-    const rec = ctx.engine.get(req.params.id);
-    if (!rec) throw new HttpError(404, 'run_not_found', `No run ${req.params.id}`);
     const body = Regenerate.safeParse(req.body ?? {});
     if (!body.success) throw validationError('regenerate', body.error.issues);
-    if (body.data.mode === 'exact') throw new HttpError(501, 'not_implemented', 'Regenerate Exact (from the saved workflow snapshot) lands in Phase 7');
-    const m = rec.manifest;
     try {
-      const manifest = await ctx.engine.create({
-        workflowId: m.workflow.id, output: m.capture.output, preset: m.capture.preset, parameters: m.parameters,
-        overrides: { theme: m.capture.theme, width: m.capture.width, height: m.capture.height, cursor: m.capture.cursor, framing: m.capture.framing, region: m.capture.region, locator: m.capture.locator, fps: m.capture.fps },
-        request: m.request.prompt || m.request.plan ? { prompt: m.request.prompt, plan: m.request.plan, ai: m.ai } : undefined,
-        regenerateOf: { runId: m.runId, mode: 'latest' }, cancelActive: body.data.cancelActive, allowRelaunch: body.data.allowRelaunch,
-      });
-      return reply.code(202).send({ run: manifest });
+      const r = await ctx.engine.regenerate(req.params.id, body.data.mode, body.data);
+      if (r.kind === 'review') return reply.code(200).send({ review: r });
+      return reply.code(202).send({ run: r.manifest });
     } catch (e) {
+      if (e instanceof RunNotFoundError) throw new HttpError(404, 'run_not_found', e.message);
       if (e instanceof RunConflictError) throw new HttpError(409, 'run_conflict', 'A capture is already running', { activeRunId: e.activeRunId });
       if (e instanceof RunValidationError) throw new HttpError(400, 'run_invalid', e.message, e.details);
       throw e;
     }
+  });
+
+  /** PRD §74: ZIP on demand — all artifacts, or `files` (comma-separated relative paths) for a selection. */
+  const archive = async (runId: string, files: string[] | undefined, reply: FastifyReply): Promise<FastifyReply> => {
+    const rec = ctx.engine.get(runId);
+    if (!rec) throw new HttpError(404, 'run_not_found', `No run ${runId}`);
+    const wanted = files?.length ? rec.manifest.artifacts.filter((a) => files.includes(a.relativePath)) : rec.manifest.artifacts;
+    if (files?.length && wanted.length !== new Set(files).size) throw new HttpError(400, 'bad_selection', 'Selection contains unknown files');
+    if (!wanted.length) throw new HttpError(404, 'no_artifacts', 'No matching artifacts');
+    const zip = new ZipFile();
+    for (const a of wanted) zip.addFile(path.join(rec.artifacts.runDir, a.relativePath), a.relativePath, { compress: a.kind === 'screenshot' });
+    zip.addBuffer(Buffer.from(JSON.stringify(rec.manifest, null, 2)), 'manifest.json');
+    zip.end();
+    reply.header('content-type', 'application/zip');
+    reply.header('content-disposition', `attachment; filename="${rec.manifest.workflow.id}-${runId}.zip"`);
+    return reply.send(zip.outputStream);
+  };
+  app.get<{ Params: { id: string }; Querystring: { files?: string } }>('/api/runs/:id/archive', async (req, reply) => archive(req.params.id, req.query.files?.split(',').filter(Boolean), reply));
+  app.post<{ Params: { id: string } }>('/api/runs/:id/archive', async (req, reply) => {
+    const body = z.strictObject({ files: z.array(z.string().min(1)).optional() }).safeParse(req.body ?? {});
+    if (!body.success) throw validationError('archive', body.error.issues);
+    return archive(req.params.id, body.data.files, reply);
+  });
+
+  /** PRD §78 Reveal in Finder / Open File — local app, so `open` is the right tool. Paths stay inside the run dir. */
+  const runFile = async (runId: string, rel: string | undefined) => {
+    const rec = ctx.engine.get(runId);
+    if (!rec) throw new HttpError(404, 'run_not_found', `No run ${runId}`);
+    if (rel === undefined) return rec.artifacts.runDir;
+    if (rel.split('/').some((s) => s === '..' || s === '')) throw new HttpError(400, 'bad_path', 'Invalid path');
+    const root = await realpath(rec.artifacts.runDir);
+    const file = await realpath(path.join(rec.artifacts.runDir, rel)).catch(() => undefined);
+    if (!file || !file.startsWith(root + path.sep)) throw new HttpError(404, 'file_not_found', 'No such file in this run');
+    return file;
+  };
+  const RelBody = z.strictObject({ path: z.string().min(1).optional() });
+  app.post<{ Params: { id: string } }>('/api/runs/:id/reveal', async (req) => {
+    const body = RelBody.safeParse(req.body ?? {});
+    if (!body.success) throw validationError('reveal', body.error.issues);
+    const target = await runFile(req.params.id, body.data.path);
+    await new Promise<void>((res, rej) => execFile('/usr/bin/open', ['-R', target], (e) => (e ? rej(e) : res())));
+    return { revealed: target };
+  });
+  app.post<{ Params: { id: string } }>('/api/runs/:id/open', async (req) => {
+    const body = RelBody.safeParse(req.body ?? {});
+    if (!body.success || !body.data.path) throw new HttpError(400, 'bad_path', 'path is required');
+    const target = await runFile(req.params.id, body.data.path);
+    await new Promise<void>((res, rej) => execFile('/usr/bin/open', [target], (e) => (e ? rej(e) : res())));
+    return { opened: target };
   });
 
   app.get<{ Params: { id: string; '*': string }; Querystring: { download?: string } }>('/api/runs/:id/files/*', async (req, reply) => {

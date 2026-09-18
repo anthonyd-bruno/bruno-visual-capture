@@ -1,4 +1,4 @@
-import { mkdir, rename, rm } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { ulid } from 'ulid';
 import { detectFFmpeg, encodeFramesToMp4, mp4ToGif, transcodeToMp4 } from '@bruno-capture/media';
@@ -7,9 +7,10 @@ import {
   type ActionRegistry, type BrunoCandidate, type BrunoSession,
 } from '@bruno-capture/automation';
 import {
-  BUILT_IN_PRESETS, DEFAULT_PRESET_FOR_OUTPUT, MANIFEST_SCHEMA_VERSION, resolveParameters,
+  BUILT_IN_PRESETS, DEFAULT_PRESET_FOR_OUTPUT, MANIFEST_SCHEMA_VERSION, WorkflowDefinitionSchema, resolveParameters,
   type CaptureConfig, type CapturePreset, type CreateRunRequest, type ResolvedParameters, type RunError, type RunEvent, type RunManifest, type RunStatus, type StepRecord, type WorkflowDefinition,
 } from '@bruno-capture/shared';
+import { parse as parseYaml } from 'yaml';
 import { BRUNO_USER_DATA_DIR, type AppPaths } from '../paths.js';
 import type { SettingsStore } from '../settings.js';
 import type { LoadedWorkflow, WorkflowRegistry } from '../workflows/registry.js';
@@ -28,6 +29,40 @@ export class RunConflictError extends Error {
 export class RunValidationError extends Error {
   readonly code = 'run_invalid';
   constructor(message: string, public readonly details?: Array<{ path: string; message: string }>) { super(message); this.name = 'RunValidationError'; }
+}
+
+export class RunNotFoundError extends Error {
+  readonly code = 'run_not_found';
+  constructor(public readonly runId: string) { super(`No run ${runId}`); this.name = 'RunNotFoundError'; }
+}
+
+/** What the Capture form needs to show when Regenerate Latest requires review (PRD §71). */
+export interface RegeneratePrefill {
+  workflowId: string;
+  output: CreateRunRequest['output'];
+  preset: string;
+  parameters: Record<string, string | number | boolean>;
+  overrides: CreateRunRequest['overrides'];
+}
+export type RegenerateResult =
+  | { kind: 'started'; manifest: RunManifest }
+  | { kind: 'review'; reason: string; issues: Array<{ path: string; message: string }>; prefill: RegeneratePrefill };
+
+/**
+ * PRD §71 Regenerate Latest: re-apply the saved parameters to the *current* definition. Anything that
+ * no longer fits — removed/renamed parameter, type change, invalid value, new required parameter,
+ * dropped output — means "show the form" rather than run.
+ */
+export function assessRegenerateLatest(manifest: RunManifest, definition: WorkflowDefinition): { ok: true; parameters: ResolvedParameters } | { ok: false; issues: Array<{ path: string; message: string }> } {
+  const issues: Array<{ path: string; message: string }> = [];
+  if (!definition.supportedOutputs.includes(manifest.capture.output)) issues.push({ path: 'output', message: `the workflow no longer supports "${manifest.capture.output}"` });
+  const resolved = resolveParameters(definition.parameters, manifest.parameters);
+  if (!resolved.ok) for (const e of resolved.errors) issues.push({ path: `parameters.${e.parameter}`, message: e.message });
+  for (const [name, def] of Object.entries(definition.parameters)) {
+    if (def.required && manifest.parameters[name] === undefined && (def as { default?: unknown }).default === undefined && !issues.some((i) => i.path === `parameters.${name}`))
+      issues.push({ path: `parameters.${name}`, message: 'new required parameter' });
+  }
+  return issues.length || !resolved.ok ? { ok: false, issues } : { ok: true, parameters: resolved.values };
 }
 
 export interface RunRecord {
@@ -79,7 +114,43 @@ export class RunEngine {
   async create(req: CreateRunRequest): Promise<RunManifest> {
     const lw = this.deps.registry.get(req.workflowId);
     if (!lw?.definition) throw new RunValidationError(`Unknown or invalid workflow "${req.workflowId}"`);
-    const def = lw.definition;
+    return this.createWithWorkflow(req, lw);
+  }
+
+  /**
+   * PRD §71. `exact` runs the run's own `workflow.yaml` snapshot with its saved parameters and capture
+   * configuration; `latest` re-applies them to the current definition and asks for review when they
+   * no longer fit. Both create a *new* run (§68).
+   */
+  async regenerate(runId: string, mode: 'exact' | 'latest', opts: { cancelActive?: boolean; allowRelaunch?: boolean } = {}): Promise<RegenerateResult> {
+    const rec = this.runs.get(runId);
+    if (!rec) throw new RunNotFoundError(runId);
+    const m = rec.manifest;
+    const overrides: CreateRunRequest['overrides'] = { theme: m.capture.theme, width: m.capture.width, height: m.capture.height, cursor: m.capture.cursor, framing: m.capture.framing, region: m.capture.region, locator: m.capture.locator, fps: m.capture.fps };
+    const base: Omit<CreateRunRequest, 'parameters'> = {
+      workflowId: m.workflow.id, output: m.capture.output, preset: m.capture.preset, overrides,
+      request: m.request.prompt || m.request.plan ? { prompt: m.request.prompt, plan: m.request.plan, ai: m.ai } : undefined,
+      regenerateOf: { runId, mode }, cancelActive: opts.cancelActive ?? false, allowRelaunch: opts.allowRelaunch ?? false,
+    };
+    if (mode === 'exact') {
+      let rawText: string;
+      try { rawText = await readFile(rec.artifacts.snapshotFile, 'utf8'); }
+      catch { throw new RunValidationError(`Run ${runId} has no workflow.yaml snapshot`); }
+      const parsed = WorkflowDefinitionSchema.safeParse(parseYaml(rawText));
+      if (!parsed.success) throw new RunValidationError('The saved workflow snapshot no longer validates against the current schema', parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message })));
+      const lw: LoadedWorkflow = { id: parsed.data.id, file: rec.artifacts.snapshotFile, source: m.workflow.source, sourcePath: m.workflow.sourcePath, definition: parsed.data, rawText, issues: [], loadedAt: new Date().toISOString() };
+      return { kind: 'started', manifest: await this.createWithWorkflow({ ...base, parameters: m.parameters }, lw) };
+    }
+    const lw = this.deps.registry.get(m.workflow.id);
+    const prefill: RegeneratePrefill = { workflowId: m.workflow.id, output: m.capture.output, preset: m.capture.preset, parameters: m.parameters, overrides };
+    if (!lw?.definition) return { kind: 'review', reason: `Workflow "${m.workflow.id}" is no longer registered (or is invalid)`, issues: [{ path: 'workflowId', message: 'not found' }], prefill };
+    const assessment = assessRegenerateLatest(m, lw.definition);
+    if (!assessment.ok) return { kind: 'review', reason: 'The workflow changed since this run; review the parameters before generating', issues: assessment.issues, prefill };
+    return { kind: 'started', manifest: await this.createWithWorkflow({ ...base, parameters: m.parameters }, lw) };
+  }
+
+  private async createWithWorkflow(req: CreateRunRequest, lw: LoadedWorkflow): Promise<RunManifest> {
+    const def = lw.definition!;
     if (!def.supportedOutputs.includes(req.output)) throw new RunValidationError(`Workflow "${def.id}" does not support output "${req.output}" (supports ${def.supportedOutputs.join(', ')})`);
     if (req.output === 'video' || req.output === 'gif') {
       const ff = await detectFFmpeg();

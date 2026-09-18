@@ -19,6 +19,19 @@ export interface WorkflowListItem {
 export type PlanResponse =
   | { ok: true; plan: CapturePlan; band: ConfidenceBand; workflow: WorkflowSummary; preset: CapturePreset; parameters: Record<string, string | number | boolean>; attribution: AIAttribution; suggestions: WorkflowSummary[] }
   | { ok: false; error: { code: string; message: string; hint?: string }; suggestions: WorkflowSummary[] };
+export type RegenerateReview = { kind: 'review'; reason: string; issues: Array<{ path: string; message: string }>; prefill: { workflowId: string; output: OutputType; preset: string; parameters: Record<string, string | number | boolean>; overrides: Record<string, unknown> } };
+export type RegenerateResponse = { run: RunManifest; review?: undefined } | { review: RegenerateReview; run?: undefined };
+
+/** Regenerate from anywhere: start the run, or hand the review to the Capture form (PRD §71). */
+export async function regenerateAndGo(runId: string, mode: 'exact' | 'latest', onError: (m: string) => void): Promise<void> {
+  try {
+    const r = await api.regenerate(runId, mode);
+    if (r.run) { location.hash = `#/run/${r.run.runId}`; return; }
+    const p = r.review!.prefill;
+    const q = new URLSearchParams({ workflow: p.workflowId, output: p.output, preset: p.preset, params: JSON.stringify(p.parameters), review: `${r.review!.reason}: ${r.review!.issues.map((i) => `${i.path} ${i.message}`).join('; ')}` });
+    location.hash = `#/capture?${q.toString()}`;
+  } catch (e) { onError((e as Error).message); }
+}
 export type SecretsView = { openai: { keyPresent: boolean; source: 'env' | 'keychain' | null }; anthropic: { keyPresent: boolean; source: 'env' | 'keychain' | null } };
 
 export const api = {
@@ -42,8 +55,11 @@ export const api = {
   createRun: (req: CreateRunRequestInput) => call<{ run: RunManifest }>('/api/runs', { method: 'POST', body: JSON.stringify(req) }),
   cancelRun: (id: string) => call<{ cancelled: boolean }>(`/api/runs/${id}/cancel`, { method: 'POST' }),
   deleteRun: (id: string) => call<{ deleted: string }>(`/api/runs/${id}`, { method: 'DELETE' }),
-  regenerate: (id: string, mode: 'exact' | 'latest') => call<{ run: RunManifest }>(`/api/runs/${id}/regenerate`, { method: 'POST', body: JSON.stringify({ mode }) }),
+  regenerate: (id: string, mode: 'exact' | 'latest', extra: { cancelActive?: boolean; allowRelaunch?: boolean } = {}) => call<RegenerateResponse>(`/api/runs/${id}/regenerate`, { method: 'POST', body: JSON.stringify({ mode, ...extra }) }),
   fileUrl: (runId: string, relativePath: string, download = false) => `/api/runs/${runId}/files/${relativePath}${download ? '?download=1' : ''}`,
+  archiveUrl: (runId: string, files?: string[]) => `/api/runs/${runId}/archive${files?.length ? `?files=${encodeURIComponent(files.join(','))}` : ''}`,
+  reveal: (runId: string, path?: string) => call<{ revealed: string }>(`/api/runs/${runId}/reveal`, { method: 'POST', body: JSON.stringify(path ? { path } : {}) }),
+  openFile: (runId: string, path: string) => call<{ opened: string }>(`/api/runs/${runId}/open`, { method: 'POST', body: JSON.stringify({ path }) }),
 };
 
 /** SSE subscription (PRD §66). Returns an unsubscribe function. */

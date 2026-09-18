@@ -23,12 +23,14 @@ export function ParamForm({ wf, values, onChange }: { wf: WorkflowSummary; value
   );
 }
 
-export function CapturePage({ initialWorkflow }: { initialWorkflow?: string }) {
+export interface CapturePrefill { workflow?: string; output?: OutputType; preset?: string; params?: Record<string, string>; review?: string }
+
+export function CapturePage({ initialWorkflow, prefill }: { initialWorkflow?: string; prefill?: CapturePrefill }) {
   const [caps, setCaps] = useState<Capabilities>();
-  const [workflowId, setWorkflowId] = useState(initialWorkflow ?? '');
-  const [output, setOutput] = useState<OutputType>('screenshots');
-  const [preset, setPreset] = useState('');
-  const [params, setParams] = useState<Record<string, string>>({});
+  const [workflowId, setWorkflowId] = useState(prefill?.workflow ?? initialWorkflow ?? '');
+  const [output, setOutput] = useState<OutputType>(prefill?.output ?? 'screenshots');
+  const [preset, setPreset] = useState(prefill?.preset ?? '');
+  const [params, setParams] = useState<Record<string, string>>(prefill?.params ?? {});
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState<string | null>(null);
@@ -123,6 +125,7 @@ export function CapturePage({ initialWorkflow }: { initialWorkflow?: string }) {
       </div>
       <div className="panel">
         <h2 style={{ marginTop: 0 }}>Manual capture</h2>
+        {prefill?.review && <div className="error"><strong>Review before generating.</strong> {prefill.review}</div>}
         {error && <div className="error">{error}</div>}
         {conflict !== null && <div className="error">A capture is already running.<div className="row" style={{ marginTop: 8 }}><button className="primary" onClick={() => start({ cancelActive: true })}>Cancel Current &amp; Start New</button><button onClick={() => setConflict(null)}>Keep Current Run</button></div></div>}
         {relaunchNeeded && <div className="error">Bruno needs to be relaunched to enable capture automation.<div className="row" style={{ marginTop: 8 }}><button className="primary" onClick={() => start({ allowRelaunch: true })}>Relaunch Bruno &amp; Continue</button><button onClick={() => setRelaunchNeeded(false)}>Cancel</button></div></div>}
