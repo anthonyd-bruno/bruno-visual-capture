@@ -1,0 +1,536 @@
+# Bruno Capture — Implementation Plan
+
+Derived from `Bruno Capture — MVP Product Requirements Document.md`. The PRD is the requirements
+contract; this is the build order, the architecture decisions it leaves open, and the corrections
+needed where a PRD assumption does not survive contact with the shipped Bruno app.
+
+Measured facts about this machine and Bruno 4.1.0 live in
+[docs/bruno-automation-surface.md](docs/bruno-automation-surface.md); Phase 0 outcomes are in
+[docs/spike-results.md](docs/spike-results.md). Paragraphs marked **Result (measured)** below were
+updated from those spikes on 2026-09-18 and supersede the surrounding text where they differ.
+
+Rough sizing: **10–14 engineer-weeks** for one engineer to hit PRD §100 acceptance, front-loaded
+with a 3–5 day spike phase that can invalidate Phase 5.
+
+---
+
+## 1. Shape of the plan
+
+The PRD's §101 sequence is sound and this plan keeps its spine. Three changes:
+
+1. **A Phase 0 of spikes goes first.** Four load-bearing assumptions (renderer video, Electron
+   window geometry, CDP attach, native capture permissions) are unproven and each one can force an
+   architecture change. Discovering that in Phase 5 wastes the Phase 3–4 investment.
+2. **Screenshots ship before AI.** Already the PRD's intent ("At this point Bruno Capture should
+   already produce useful screenshots without AI") — made explicit as a releasable internal
+   milestone at the end of Phase 3.
+3. **No dependency on changes to Bruno itself.** Three of the five MVP feature areas have gaps in
+   Bruno's static test ids. Rather than waiting on upstream PRs, the action registry uses a fixed
+   locator ladder (D11) and a live locator audit runs as a Phase 0 spike (S5), so every gap has a
+   named resolution before Phase 2 starts.
+
+---
+
+## 2. Phase 0 — spikes (3–5 days, do before anything else)
+
+Each spike is a throwaway script under `spikes/`. Each has a written answer and a fallback.
+
+### S1 — Can Playwright drive the shipped, signed Bruno.app?
+
+```bash
+corepack enable pnpm && pnpm init && pnpm add -D playwright
+```
+
+```js
+const { _electron: electron } = require('playwright');
+const app = await electron.launch({ executablePath: '/Applications/Bruno.app/Contents/MacOS/Bruno' });
+const win = await app.firstWindow();
+console.log(await win.title(), await app.evaluate(({ app }) => app.getVersion()));
+```
+
+Bruno is Developer-ID signed with hardened runtime and **no** `get-task-allow` or
+`allow-dyld-environment-variables` entitlement. Playwright's Electron launcher relies on the
+main-process Node inspector plus `--remote-debugging-port`; the inspector is in-process (no
+`task_for_pid`), so it should survive hardened runtime — but this is exactly the kind of thing that
+silently fails on a notarized build, so prove it.
+
+- **Pass:** Electron mode is the primary path. `app.evaluate()` gives main-process access, which is
+  what makes deterministic window geometry possible.
+- **Fail:** fall back to launching Bruno manually with `--remote-debugging-port=9222` and
+  `chromium.connectOverCDP()`. That loses main-process access (see D2), and if even that is blocked,
+  automation requires a local Bruno dev build and "installed Bruno" support in PRD §21/§100 has to
+  be renegotiated.
+
+**Result (measured): PASS.** Electron mode works against the signed app — Node inspector attaches,
+`app.evaluate()` has full main-process access, 5/5 launches at ~2.4 s. One first-ever launch failed
+inside `electron.launch` ("Target page, context or browser has been closed"); wrap launch in a single
+retry. CDP-only attach also works. When Bruno is *already running*, the second instance self-quits
+(single-instance lock) and `osascript -e 'tell application "Bruno" to quit'` closes the user's
+instance cleanly in ~400 ms — that is the relaunch flow (D1).
+
+### S2 — How do we get exact, deterministic window/viewport geometry? (PRD §56)
+
+Test, in order:
+
+1. Electron mode: `app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentBounds({...}))`
+2. CDP mode: `Emulation.setDeviceMetricsOverride` — resizes the *renderer*, not the OS window
+3. Screenshot dimensions from each: does a 1600×1000 request produce a 1600×1000 PNG?
+
+**Result (measured):** `setContentBounds(1600×1000)` gives a 1600×1000 renderer and a 1600×1000
+PNG. `page.setViewportSize()` also works under Electron 37 / Playwright 1.63. Device-metrics
+override does **not** enlarge the capture surface — layout reported 1920×1080 but the screenshot
+stayed 1600×1000 (clipped) — so it is not a substitute for resizing. **Rule: every framing resizes
+the real window via `setContentBounds`; one mechanism.** Presets larger than the display's work area
+get clamped by macOS and must be reported by System Status, not silently accepted. Retina
+(`scaleFactor` 2) is untested on this machine; presets are CSS px, use `scale: 'css'`.
+
+### S3 — Renderer video: what actually works?
+
+The PRD (§19, §49) says "Playwright exposes a page screencast API that can save WebM video and/or
+emit frames." **There is no public `page.startScreencast()` in Playwright.** The real options:
+
+| Option | Gives | Costs |
+|---|---|---|
+| `electron.launch({ recordVideo: { dir, size } })` | WebM per page, no extra code | Records the **whole session** — cannot start/stop mid-run; variable frame rate |
+| CDP `Page.startScreencast` + frame assembly | True start/stop, exact PTS, frames reusable for live preview | You own frame capture, timing, and FFmpeg concat |
+
+**Result (measured): `recordVideo` is dead for the packaged app** — the first window never becomes
+usable and no screencast is ever started. **CDP `Page.startScreencast` works** and is the renderer
+recording mechanism: 34 change-driven frames in 5 s (median gap 16 ms during motion, zero frames
+while idle), assembled via FFmpeg concat with per-frame durations into a 1600×1000 30 fps H.264 MP4.
+Start/stop map 1:1 onto `startRecording`/`stopRecording`, so boundaries are exact with no trimming,
+and the same frames feed the live preview. See D9.
+
+### S4 — ScreenCaptureKit helper: build and permission reality
+
+Build a ~100-line Swift binary that lists windows, filters to Bruno's, and records 3 seconds.
+
+- `swiftc` against the CommandLineTools SDK is enough — no full Xcode needed.
+- Screen Recording is a **per-binary** TCC grant. A bare CLI launched by Node launched by a terminal
+  gets the prompt attributed to the *responsible process* (the terminal), and an ad-hoc-signed
+  binary loses its grant on every rebuild because the grant keys on the code-signing identity.
+- **Therefore:** ship the helper as a minimal `.app` bundle with its own bundle id, installed to a
+  stable path (`~/Library/Application Support/Bruno Capture/bin/`), signed with Bruno's Developer ID
+  for release. Accept re-approval churn in dev, or use a stable self-signed cert.
+- Check permission with `CGPreflightScreenCaptureAccess()` before entering a recording section
+  (PRD §60 requires failing *before* the workflow records, not producing a black video).
+
+**Result (measured, partial):** builds with `swiftc` + CommandLineTools (61 KB). Preflight reports
+Screen Recording *not granted* for this process chain; the enumerating run prompts and is deferred
+until the user is at the keyboard. Signing/TCC approach unchanged.
+
+### S5 — Live locator audit of the three gap areas (½ day)
+
+The test-id inventory in `docs/` is a *static* grep of string literals. It misses computed ids,
+ARIA roles, labels and visible text — which is most of what Playwright's resilient locators use.
+Launch Bruno (via S1), open each gap area, and record for every control the workflows need:
+
+- the HTTP send control, the Runner entry point, the timeline toggle, and the full OpenAPI
+  spec-sync surface (import → open spec → detect changed spec → sync → updated state)
+- for each: any runtime `data-testid`, `role` + accessible name, visible text, and whether a
+  keyboard shortcut or command-palette entry reaches it
+
+Output: a table appended to `docs/bruno-automation-surface.md` assigning each control a rung on
+the D11 ladder. Keep the audit as a script so it re-runs on every Bruno bump. **Pass:** every
+control has a rung ≤ 4. **Fail** (a control is only reachable by brittle CSS): that action is
+written with the CSS locator, a postcondition, and a `debt` tag — it does not block the phase.
+
+**Result (measured): PASS for everything reachable before a request is sent.** Runner entry =
+`collection-actions-run`, OpenAPI entry = `collection-actions-sync-openapi` (rung 2, all 18 menu
+items have derived ids); Send = ⌘↩, confirmed by Bruno's own placeholder ids (rung 4); theme lives in
+renderer `localStorage['bruno.theme']` (see D3). Timeline is only visible after a response exists —
+re-audit in Phase 2 with a fixture request. Table in `docs/spike-results.md`.
+
+---
+
+## 3. Decisions the PRD leaves open (or gets wrong)
+
+Numbered so implementation PRs can cite them.
+
+**D1 — "Reuse the existing Bruno instance" is mostly unreachable.** PRD §22 Case 1 requires the
+running Bruno to expose a debugging endpoint. A Bruno launched from the Dock has no
+`--remote-debugging-port`, so Case 1 only applies when Bruno Capture launched it earlier in the
+session, or the user launched it with the flag themselves. **Decision:** make relaunch-under-control
+the normal path, keep Case 1 as an opportunistic optimisation (probe `127.0.0.1:<port>/json/version`
+for a port we own), and word the §22 prompt as the expected flow rather than an error.
+**Measured (S1d):** launching a second instance while Bruno runs makes the *new* instance quit
+(single-instance lock) and Playwright fails within ~1 s; the user's instance survives. Relaunch =
+detect (`pgrep -f 'MacOS/Bruno$'`) → prompt → `osascript -e 'tell application "Bruno" to quit'`
+(exit 0 in ~400 ms) → wait for exit → launch under Playwright.
+**Measured (S6):** the packaged app honours Electron's generic `--user-data-dir=<dir>` switch —
+`app.getPath('userData')` moves to that directory and a complete fresh profile is created there
+(Bruno's own `ELECTRON_USER_DATA_PATH` is `isDev`-only and does nothing in the installed build).
+Electron's single-instance lock is per userData, so in `profileMode: 'capture'` (D4) Bruno Capture
+launches its own instance beside the user's with **no relaunch prompt**; the §22 prompt only applies
+in `'user'` mode.
+
+**D2 — CDP mode is a degraded mode, and the UI must say so.** With `connectOverCDP` there is no
+`ElectronApplication`, so: no `setContentBounds` (→ no Full App Window at exact size), and no
+`app.getVersion()` (read `CFBundleShortVersionString` from `Info.plist` instead — which is the more
+reliable source anyway and works before launch). Record `bruno.mode` in the manifest and surface
+"limited automation" in the run UI.
+
+**D3 — Theme and workspace state are set deterministically, not clicked.** There is no theme test
+id. **Measured (S5b/S5c):** `preferences.json`'s `themeMode` is *written* by the renderer, not read
+at startup — seeding it does nothing. The source of truth is renderer
+`localStorage['bruno.theme']` (JSON string `"system"` | `"light"` | `"dark"`); setting it and calling
+`page.reload()` flips `html.class` in ~530 ms, and nothing changes without the reload.
+**Decision:** `theme.set` = localStorage write + reload + wait for `[data-testid="sidebar"]`, run
+in-session right after connect and before any capture; postcondition
+`document.documentElement.className === theme`. **Measured (S7):** workspace seeding works and is done
+by the engine *before launch*, not by an action: `default-workspace/workspace.yml` lists the
+collection and `ui-state-snapshot.json` carries a `collections[]` entry with `isOpen: true` (that
+flag is what mounts it) and `selectedEnvironment`, plus `preferences.onboarding.hasLaunchedBefore`
+so first launch creates nothing. `workspace.open` and `environment.select` therefore run as
+postcondition checks. Implemented in `packages/automation/src/profile.ts` and `RunEngine.pipeline`.
+
+**D4 — Profile isolation is worth reopening.** PRD §23 defers isolated profiles to post-MVP, but
+D3 means every run writes into the user's real Bruno profile — changing their theme, their active
+workspace, and their collection list, with no restoration (§24). Electron's `--user-data-dir`
+switch gives a clean, seeded, deterministic profile for roughly the cost of one config field.
+**Recommendation:** build `profileMode: 'user' | 'capture'` from the start, default to `'user'` per
+the PRD, and treat `'capture'` as a flag we can flip once it proves out. If we only ever build
+`'user'`, "workflows must explicitly set important visual state" (§23) becomes a permanent tax on
+every workflow author. **Resolved:** do that. `profileMode` is a launch-config field from Phase 2;
+`'capture'` launches with `--user-data-dir=~/Library/Application Support/Bruno Capture/profile/<id>`
+(measured S6; `ELECTRON_USER_DATA_PATH` turned out to be dev-only). The profile is seeded **before
+first launch** with `default-workspace/workspace.yml` (`collections: [{name, path}]`) and
+`ui-state-snapshot.json` (`activeWorkspacePath`, `workspaces[0].collections`, `extras.sidebar`) — the
+same two files `'user'` mode patches (with a backup), so both modes share one seeding code path.
+Seeding before first launch also matters because an *empty* fresh profile's onboarding creates a
+"Sample API Collection" under `~/Documents/bruno/` on the user's disk (measured).
+
+**D5 — The synthetic cursor is a DOM overlay, not an FFmpeg composite.** Inject a positioned SVG
+cursor into Bruno's renderer and animate it with deterministic interpolation, stepping
+`page.mouse.move()` along the same path so hover states match what the viewer sees. One
+implementation then covers screenshots, renderer video, *and* native window recording, with no
+compositing stage and no coordinate translation. The native macOS cursor is simply never in frame,
+satisfying §58's "excluded where possible".
+
+**D6 — GIFs should not run at 30 FPS.** §52 normalises video to 30 FPS; §88 already says GIF should
+prioritise readability and size. **Decision:** GIF pipeline targets 15 FPS with
+`palettegen`/`paletteuse` (`stats_mode=diff`, Bayer dithering), width from the preset, height
+derived. Write the effective FPS into the manifest.
+
+**D7 — One Zod schema set, three consumers.** Define workflow, parameter, plan, and manifest schemas
+once in `packages/shared`. Derive the AI provider's JSON Schema with `z.toJSONSchema()`, and drive
+the parameter form from the same objects. This is what keeps PRD §31's promise ("the same parameter
+schema is exposed to the AI planner") true instead of aspirational, and it makes §15's validation
+order mostly free.
+
+**D8 — Structured output is a first-class provider feature on both sides.** Anthropic:
+`client.messages.parse({ model: 'claude-opus-5', output_config: { format: zodOutputFormat(CapturePlanSchema) } })`
+→ read `response.parsed_output`, guard for `null`. OpenAI: the equivalent strict JSON-schema
+response format. Neither needs prompt-level JSON coaxing, and assistant prefill is rejected on
+current Anthropic models — do not reach for it. §11's "one repair attempt" therefore becomes a rare
+path (schema-valid but semantically invalid: unknown workflow id, bad enum), not the normal one.
+Default models: `claude-opus-5` for Anthropic; pick the current flagship for OpenAI at build time.
+
+**D9 — Renderer recording is CDP screencast frames, assembled by FFmpeg.** Measured in S3:
+`recordVideo` is unusable for the packaged app; `Page.startScreencast` works. The renderer
+`RecordingController` opens a CDP session, starts the screencast at `startRecording` (or at
+workflow start when no explicit boundary exists), acks every frame, stores each JPEG with its
+`metadata.timestamp`, and stops at `stopRecording`. Processing writes a concat list with per-frame
+durations (last frame held until the stop timestamp, since idle produces no frames) and encodes
+`fps=30` CFR H.264. Boundaries are therefore exact with no trimming, and the frame stream doubles as
+the live preview source. The native path starts/stops the SCK stream at the same step boundaries;
+both live behind the same `RecordingController` interface.
+
+**D10 — `request.send` uses the keyboard.** No HTTP send-button test id exists. Focus the request
+pane and press the send shortcut; assert the postcondition on `response-status-code`. This is the
+permanent implementation, not an interim one — a shortcut is more stable than a button that moves.
+**Confirmed (S5):** Bruno's empty response pane lists "Send Request — ⌘ + ↩" itself
+(`response-placeholder-shortcut-value-sendRequest`).
+
+**D11 — Locator ladder; no upstream Bruno changes.** Every semantic action resolves its targets
+with the first rung that works, and the rung is recorded in the action's source so debt is visible:
+
+1. static `data-testid` (the 499 in the inventory)
+2. derived dropdown ids (`${menuTestId}-${itemId}`, see the surface doc)
+3. Playwright user-facing locators — `getByRole`, `getByLabel`, `getByText`, `getByPlaceholder`
+4. keyboard shortcut or command palette (`quick-actions-modal`, `global-search-input`)
+5. file seeding (D3) — reach the *state* without touching the control at all
+6. CSS/XPath, tagged `debt`, with a postcondition wait and a note of what a rung-1 id would be
+
+Rungs 3–4 are locale- and copy-sensitive. That is acceptable because selectors live *only* in the
+registry (§102), every action asserts a postcondition so breakage names itself (§94), and the
+macOS CI lane runs the action suite against each Bruno release. PRD §8's "no arbitrary CSS/XPath"
+constrains the AI planner, not the registry — the registry is exactly where selectors belong.
+
+Applied to the known gaps (**measured in S5**): HTTP send → rung 4 (D10). Runner entry point →
+rung 2, `collection-actions` → `collection-actions-run`. OpenAPI entry → rung 2,
+`collection-actions-sync-openapi`; the "changes detected" *state* is produced at rung 5 by rewriting
+the spec file in the temp fixture workspace (which the workflow has to do anyway). Timeline toggle →
+not visible until a response exists; re-audit in Phase 2 with a fixture request (expect rung 1–3).
+Theme → rung 5 via renderer localStorage + reload (D3).
+
+---
+
+## 4. Architecture
+
+### Repo layout
+
+Per PRD §18, with the responsibilities pinned down:
+
+```
+bruno-capture/
+├── apps/
+│   ├── server/          Fastify: HTTP + SSE, route validation, static web build
+│   └── web/             React + Vite + TS
+├── packages/
+│   ├── shared/          Zod schemas + inferred types. Zero runtime deps. D7 lives here
+│   ├── core/            settings, workflow registry + watcher, run engine, run store,
+│   │                    artifact/manifest writer, system status. No HTTP, no Playwright
+│   ├── automation/      Bruno discovery, launch/attach, geometry, semantic action registry,
+│   │                    region resolver, capture + recording controllers, cursor overlay
+│   ├── media/           FFmpeg adapter (MP4/H.264, GIF, crop/scale/fps), ZIP, probe
+│   ├── ai/              provider abstraction, OpenAI, Anthropic, plan validation, Keychain
+│   └── cli/             bru-capture — thin wrapper over core, never a second engine (§92)
+├── workflows/           built-in YAML
+├── fixtures/            runner/ request-execution/ openapi-sync/ environments/ timeline/
+├── native/macos-capture-helper/   Swift + SCK, no workflow logic (§61)
+├── spikes/              Phase 0 throwaways, kept for reference
+└── docs/
+```
+
+Dependency rule, enforced by lint: `web → shared`, `server → core|ai|shared`,
+`core → automation|media|shared`, `cli → core|ai|shared`. Nothing imports `server`.
+`automation` never imports `core` (the run engine calls into automation, not the reverse).
+
+### Run engine
+
+One in-process singleton owning the §65 state machine and the §63 one-run-at-a-time invariant.
+
+```ts
+interface RunEngine {
+  create(req: CreateRunRequest): Promise<Run>;   // validates, snapshots workflow, claims the slot
+  cancel(runId: string, reason: CancelReason): Promise<void>;
+  subscribe(runId: string): AsyncIterable<RunEvent>;   // §66 events, replayed from a ring buffer
+}
+```
+
+Implementation notes that matter:
+
+- **Every phase takes an `AbortSignal`.** Cancellation (§64) is cooperative and must reach
+  Playwright calls, the recording controller, spawned FFmpeg, and the native helper. Helper and
+  FFmpeg PIDs are tracked in a run-scoped process group so cancel can't orphan them.
+- **`workflow.yaml` is snapshotted at `validating`.** A watcher event during a run never touches the
+  active snapshot (§29, §97).
+- **Event bus is append-only with a replay buffer**, so a browser that connects late or reconnects
+  mid-run still renders correct state. SSE alone loses events on reconnect.
+- **Terminal state is assigned exactly once** (§65) — a single `finalize()` guarded by a flag, with
+  artifact commit and manifest write before the state transition (§45: temp workspace deletion
+  happens only *after* the manifest is committed).
+- **Preview frames** (§59) are a `setInterval` on `page.screenshot({ type: 'jpeg', quality: 60 })`
+  at ~1.5 FPS, written nowhere and pushed as data URLs. Suspend while a screenshot artifact is being
+  captured so previews never interleave with real output.
+
+### Semantic actions
+
+```ts
+interface CaptureAction<P = unknown> {
+  id: string;                          // 'runner.open'
+  retryable: boolean;                  // §42 — declared by the action, not the workflow
+  needsRelaunch?: boolean;             // D3 — file-seeding actions
+  paramsSchema: ZodType<P>;
+  execute(ctx: WorkflowContext, params: P): Promise<void>;
+}
+```
+
+Every action owns its own postcondition wait (§39). The registry is the *only* place selectors
+appear — workflows reference actions and named regions, never raw locators, except through the §38
+escape hatch (allowlisted operations: `click`, `fill`, `press`, `hover`, `selectOption`; each
+occurrence logged as debt and counted in a CI report so the number has to go down).
+
+MVP action set, from the measured surface:
+
+```
+app.setGeometry  theme.set*  workspace.open*  sidebar.set*
+collection.open  request.open  request.send  request.setUrl
+runner.open  runner.runCollection  runner.waitComplete
+environment.select  environment.openEditor
+timeline.open  timeline.waitActivity
+openapi.import  openapi.sync
+mockServer.start  mockServer.stop
+                                            (* = seeds files, needsRelaunch)
+```
+
+### Artifacts & library
+
+Run directory exactly as §67. The library indexes `manifest.json` files at startup into memory
+(§98) — no database. Manifests are versioned (`schemaVersion`) from day one so the indexer can skip
+or migrate old runs instead of crashing on them. Filenames come from a slug of the capture id plus
+the workflow id (§75); collisions get a numeric suffix, never a UUID.
+
+---
+
+## 5. Milestones
+
+Estimates are rough engineer-weeks for one engineer, excluding Phase 0.
+
+### Phase 1 — Core runtime (1.5 w)
+pnpm workspace + TS project refs; `shared` schemas; Fastify bound to `127.0.0.1` with origin
+allowlist and Zod validation on every route (§20, §85); React shell with the four sections; settings
+persistence to `~/Library/Application Support/Bruno Capture/settings.json`; `GET /api/system/status`
+with real FFmpeg / artifact-dir / Bruno detection; artifact root creation; `bru-capture` starts the
+server, picks a free port, runs checks, opens the browser.
+
+**Exit:** `bru-capture` opens a UI that truthfully reports system status on a machine with nothing
+else configured. Missing FFmpeg degrades, never blocks (§62, §95).
+
+### Phase 2 — Bruno automation (2 w) — gated on S1/S2
+Bruno discovery (`/Applications`, `~/Applications`, manual override, version from `Info.plist`);
+launch under Playwright Electron with `profileMode` (D4); existing-instance probe + relaunch flow (D1); CDP fallback with
+degraded-mode reporting (D2); window/viewport geometry (D3/S2); the action registry with ~6 actions
+spanning both mechanisms (seeded + clicked); region resolver.
+
+**Exit:** a test can launch Bruno at exactly 1600×1000 in light theme with a fixture collection
+loaded, click into the Runner, and read back its open state — with no sleeps.
+
+### Phase 3 — Screenshot vertical slice (2.5 w, incl. 2 days release polish)
+Fixture handling (bundled → temp workspace copy, user fixtures in place or copied per §44); YAML
+loader + validator; the linear step executor (`action`, `capture`, `waitFor`, `pause`,
+`selectorAction`, `continueOnError`); all four screenshot framings (§48); manifest + snapshot
+writer; live preview; SSE wiring; the Runner screenshot workflow end to end.
+
+This is a **real internal release to the docs team**, so it carries a bounded 2-day polish budget:
+the §94 error UX for the screenshot path, PNG download + Copy, a minimal Library list (newest
+first, no filters), and a one-page "install → first screenshot" README. Nothing else from Phases
+4–7 is pulled forward.
+
+**Exit (internal release):** Bruno Capture produces useful documentation screenshots with no AI and
+no FFmpeg. Everything after this point is additive.
+
+### Phase 4 — Workflow UX (1.5 w)
+Workflows screen (cards, detail, validation status, source labels); custom directories; imported
+files resolved in place with absolute paths (§28); debounced chokidar watching + manual refresh;
+auto-generated parameter forms from the Zod schemas (§31, §32); manual run configuration; per-file
+validation errors that never take down the registry (§96).
+
+**Exit:** a workflow authored in an external editor, outside this repo, runs from the UI; breaking
+it shows a field-level error and the built-ins keep working.
+
+### Phase 5 — Video & GIF (2.5 w) — gated on S3/S4
+`RecordingController` with the two mechanisms behind one interface; recording boundaries (D9);
+`packages/media` FFmpeg adapter (MP4/H.264/30fps/silent, GIF per D6, crop/scale/pad); the Swift SCK
+helper as a signed `.app` + permission preflight and the §60 remediation UI; region recording with a
+crop fixed at segment start (§57); synthetic cursor (D5) in all three modes.
+
+**Exit:** the same workflow yields a 1920×1080 30 FPS silent MP4 and a 1000px GIF, both with a
+visible animated cursor; `ffprobe` assertions in CI.
+
+### Phase 6 — AI planning (1.5 w)
+Provider abstraction; Keychain storage via the `security` CLI or a native binding, with env-var
+override (§12); both providers with native structured output (D8); the §15 validation pipeline;
+confidence thresholds (§16); one repair attempt then fallback, with fallback surfaced in the UI and
+recorded in the manifest (§11); the capture prompt UX and plan review.
+
+**Exit:** the §104 sentence produces a runnable plan; every provider path is covered by tests using
+recorded responses, with zero live API calls in CI (§99).
+
+### Phase 7 — Library & regeneration (1 w)
+Library with newest-first + filters; artifact detail; download, copy, on-demand ZIP including
+selected-subset (§74); reveal in Finder; delete with confirmation; Regenerate Exact from the
+snapshot and Regenerate Latest with the re-validation/review rule (§71).
+
+**Exit:** a run from Phase 3 regenerates both ways after its source workflow has been edited.
+
+### Phase 8 — MVP workflow coverage (2 w)
+Author and harden the §90 minimum: 5 feature areas, 15 screenshot states, 3 multi-step screenshot
+workflows, 3 video workflows, 3 GIF workflows, with bundled fixtures using Bruno's mock server
+rather than live APIs (§46, §91). OpenAPI Sync is the risk here — schedule it first inside the
+phase, not last, and start from the S5 table rather than rediscovering the surface.
+
+**Exit:** the full §100 checklist, run on a clean macOS account.
+
+---
+
+## 6. Cross-cutting
+
+**Security (§20).** Bind `127.0.0.1`; reject requests whose `Origin`/`Host` isn't the local UI;
+no wildcard CORS. Every path from a request is resolved and checked against an allowlist of roots
+(artifact root, configured workflow dirs, imported file paths) before any fs call — reject
+symlink escapes after `realpath`, not before. Keys never leave the backend: `GET /api/settings`
+returns `{ openai: { keyPresent: true } }`, never the value. Nothing from a workflow is ever passed
+to a shell; FFmpeg is invoked with an argv array, never a string.
+
+**Logging (§93).** Per-run NDJSON at `debug/run.log`: state transitions, step index, action id,
+timing, retries, waits, recording events, FFmpeg argv + exit code. A single redaction helper wraps
+the logger and strips known secret keys; a unit test asserts a planted key never reaches the log.
+
+**Testing (§99).** Unit tests on schemas, parameter resolution, plan validation, provider fallback,
+crop math, filename generation, retry classification. A CI test that validates every built-in
+workflow. Semantic-action tests as precondition → action → postcondition triples against a real
+Bruno on a macOS runner. Media assertions via `ffprobe` (codec, dimensions, fps, no audio stream),
+not eyeballing. Recorded provider fixtures for all seven §99 AI cases.
+
+**CI.** Two lanes: a fast lane (lint, typecheck, unit, workflow validation) on every PR, and a
+macOS lane (Bruno launch + representative workflows + media probes) on merge and nightly. PRD §4
+excludes CI as a *product* feature; this is just our own tests.
+
+---
+
+## 7. Risk register
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| ~~Playwright can't drive the signed Bruno.app (S1)~~ | — | **Resolved:** works, 5/5; one launch retry covers the observed one-off |
+| ~~`recordVideo` unusable under Electron (S3)~~ | — | **Confirmed and absorbed:** CDP screencast is the renderer path (D9) |
+| Display smaller than preset (e.g. 1920×1080 on a 13" laptop) | Silent clamping → wrong-size artifacts | System Status checks work area vs preset before `preparing`; fail with a clear message |
+| Retina scale factor untested | 2× PNGs where 1× expected | Presets are CSS px; `scale: 'css'`; add a dpr-2 assertion to the macOS CI lane |
+| TCC re-prompts on every helper rebuild (S4) | Dev friction, bad first-run UX | Signed `.app` at a stable path; preflight + clear remediation UI |
+| OpenAPI Sync not addressable | Loses one of three headline workflows | S5 audit in Phase 0; D11 ladder (state via file seeding, clicks via existing ids or role locators); if S5 still leaves it at rung 6, promote the Environments video workflow to third headline and keep OpenAPI as screenshots-only |
+| Bruno UI churn breaks actions | Workflows rot — the exact problem this product exists to solve | Selectors confined to the registry; postcondition-based failures name the action and step (§94); re-run the test-id inventory and the S5 audit script on each Bruno bump; a `debt` count in CI that must not rise |
+| Seeding files corrupts a user's Bruno state | Angry first users | Back up the two seeded files into `debug/` before writing; ship D4's capture profile if this bites |
+| Recording quality/timing drift | Artifacts look cheap | `ffprobe` assertions in CI; re-encode on trim; GIF at 15 FPS |
+
+---
+
+## 7b. Implementation status (2026-09-18)
+
+Built and verified against Bruno 4.1.0 on this machine — see `docs/spike-results.md` for numbers:
+
+- **Phase 0** complete (S1–S7). **Phase 1** complete: workspace, `shared` schemas (45 unit tests
+  across packages), Fastify backend with loopback/Origin guard, settings + workflow-sources stores,
+  system status, `bru-capture` / `bru-capture doctor`, React shell (Capture, Run, Workflows, Library,
+  Settings) served by the backend.
+- **Phase 2** largely complete: discovery, Electron launch with retry, `--user-data-dir` capture
+  profile with seeding, geometry, theme, action registry (`app.setGeometry`, `theme.set`,
+  `workspace.open`, `collection.open`, `runner.open`, `runner.runCollection`, `runner.waitComplete`,
+  `request.open`, `request.send`, `environment.select`, `environment.openEditor`), regions, states.
+  Outstanding: user-profile relaunch flow is coded but not live-tested; timeline actions; mock-server actions.
+- **Phase 3** vertical slice complete: fixture staging, YAML registry, executor (templating, retry,
+  continueOnError, cancellation), all four screenshot framings (Full App Window via macOS
+  `screencapture -l <CGWindowID>` until the SCK helper exists), artifacts + manifest + snapshot,
+  live preview over SSE, Runner workflow end to end from CLI, HTTP and UI.
+- **Phase 4** partial: Workflows screen, import/directories via API + UI, manual Refresh, generated
+  parameter forms. Outstanding: filesystem watching (§29).
+- **Phase 5/6** not started: `RecordingController` (CDP screencast + FFmpeg), SCK helper, cursor
+  overlay, AI providers/Keychain. Video/GIF requests currently return a clear 400.
+- **Phase 7** partial: Library list/filters, download, delete, Regenerate Latest. Outstanding:
+  Regenerate Exact from the snapshot, ZIP, Reveal in Finder, artifact detail metadata.
+
+**Deviation to note:** in `profileMode: 'user'` the bundled fixture is copied to a stable
+`~/Library/Application Support/Bruno Capture/runtime-fixtures/<fixture>` (refreshed each run) rather
+than a per-run temp dir, because the user's Bruno keeps that collection mounted after the run (PRD §24)
+and a deleted path would leave a dangling entry in their workspace. Capture mode uses per-run temp
+workspaces exactly as §45 describes.
+
+## 8. What I'd change about the PRD
+
+1. §19/§49's "Playwright page screencast API" — no such public API; replace with D9/S3.
+2. §22 Case 1 — reframe per D1; as written it implies reuse is the common path.
+3. §56 — state explicitly that exact geometry for App Content Only comes from renderer metrics while
+   Full App Window needs real window bounds (pending S2).
+4. §52/§88 — make the GIF frame rate explicit (D6) rather than leaving 30 FPS to be inherited.
+5. §23 — reconsider profile isolation now that D3 shows how much state seeding the MVP does.
+6. §90's "3 GIF workflows" — GIFs and videos come from the same recordings; count them as 3
+   workflows with two outputs each rather than 6 separate authoring jobs.
+
+## 9. Decisions (resolved 2026-09-18)
+
+1. **Profile mode (D4):** build `profileMode: 'user' | 'capture'` in Phase 2, default `'user'`.
+2. **No upstream Bruno dependency:** the plan takes no PRs to `usebruno/bruno`. Gaps in Bruno's
+   test ids are handled inside the action registry via the D11 ladder, verified live in S5.
+3. **End of Phase 3 is a real internal release** to the docs team, with a bounded 2-day polish
+   budget (scope in Phase 3). Everything after it is additive.

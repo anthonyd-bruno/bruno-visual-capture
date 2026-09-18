@@ -1,0 +1,23 @@
+{
+  "name": "@bruno-capture/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Settings, workflow registry, run engine, artifact store, system status",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run --root ../.."
+  },
+  "dependencies": {
+    "@bruno-capture/automation": "workspace:*",
+    "@bruno-capture/media": "workspace:*",
+    "@bruno-capture/shared": "workspace:*",
+    "chokidar": "^5.0.0",
+    "ulid": "^3.0.2",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  }
+}

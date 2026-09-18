@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bruno-capture",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["exec", "tsx", "apps/server/src/main.ts"],
+      "port": 4011,
+      "env": { "PORT": "4011" }
+    }
+  ]
+}

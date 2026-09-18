@@ -1,0 +1,20 @@
+{
+  "name": "@bruno-capture/automation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bruno discovery/launch, geometry, semantic actions, capture & recording controllers",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run --root ../.."
+  },
+  "dependencies": {
+    "@bruno-capture/shared": "workspace:*",
+    "playwright": "^1.63.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  }
+}

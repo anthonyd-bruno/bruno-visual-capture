@@ -1,0 +1,316 @@
+import { rename, rm } from 'node:fs/promises';
+import path from 'node:path';
+import { ulid } from 'ulid';
+import {
+  BrunoAlreadyRunningError, addCollectionToUserWorkspace, findRunningBruno, launchBruno, quitBrunoGracefully, seedCaptureProfile, setContentSize, setTheme,
+  type ActionRegistry, type BrunoCandidate, type BrunoSession,
+} from '@bruno-capture/automation';
+import {
+  BUILT_IN_PRESETS, DEFAULT_PRESET_FOR_OUTPUT, MANIFEST_SCHEMA_VERSION, resolveParameters,
+  type CaptureConfig, type CapturePreset, type CreateRunRequest, type ResolvedParameters, type RunError, type RunEvent, type RunManifest, type RunStatus, type StepRecord, type WorkflowDefinition,
+} from '@bruno-capture/shared';
+import { BRUNO_USER_DATA_DIR, type AppPaths } from '../paths.js';
+import type { SettingsStore } from '../settings.js';
+import type { LoadedWorkflow, WorkflowRegistry } from '../workflows/registry.js';
+import { RunArtifactStore } from './artifacts.js';
+import { CaptureController } from './capture.js';
+import { RunEventBus } from './events.js';
+import { executeWorkflow, RunCancelled, WorkflowStepFailure } from './executor.js';
+import { stageFixture, type StagedFixture } from './fixtures.js';
+
+export class RunConflictError extends Error {
+  readonly code = 'run_conflict';
+  constructor(public readonly activeRunId: string) { super('A capture is already running'); this.name = 'RunConflictError'; }
+}
+export class RunValidationError extends Error {
+  readonly code = 'run_invalid';
+  constructor(message: string, public readonly details?: Array<{ path: string; message: string }>) { super(message); this.name = 'RunValidationError'; }
+}
+
+export interface RunRecord {
+  manifest: RunManifest;
+  bus: RunEventBus;
+  artifacts: RunArtifactStore;
+  staged?: StagedFixture;
+}
+
+export interface RunEngineDeps {
+  settings: SettingsStore;
+  paths: AppPaths;
+  registry: WorkflowRegistry;
+  actions: ActionRegistry;
+  resolveBruno(): Promise<{ candidate?: BrunoCandidate; error?: string }>;
+  fixturesDir: string;
+  presets?: readonly CapturePreset[];
+  log?: (message: string) => void;
+}
+
+interface ActiveRun { runId: string; abort: AbortController; done: Promise<void> }
+
+const firstLine = (e: unknown) => String((e as Error)?.message ?? e).split('\n')[0]!;
+
+/**
+ * Owns the §65 state machine, the §63 one-run-at-a-time rule, cancellation (§64) and the Bruno
+ * session. Everything the CLI and the server do with runs goes through here (PRD §92).
+ */
+export class RunEngine {
+  private readonly runs = new Map<string, RunRecord>();
+  private active?: ActiveRun;
+  private session?: BrunoSession;
+  private readonly presets: readonly CapturePreset[];
+
+  constructor(private readonly deps: RunEngineDeps) {
+    this.presets = deps.presets ?? BUILT_IN_PRESETS;
+  }
+
+  get activeRunId(): string | undefined { return this.active?.runId; }
+  get(runId: string): RunRecord | undefined { return this.runs.get(runId); }
+  list(): RunManifest[] { return [...this.runs.values()].map((r) => r.manifest); }
+  events(runId: string, signal?: AbortSignal): AsyncGenerator<RunEvent> | undefined { return this.runs.get(runId)?.bus.iterate(signal); }
+
+  private sessionAlive(): boolean {
+    return Boolean(this.session && !this.session.page.isClosed());
+  }
+
+  /** Validate (PRD §85: backend is authoritative), claim the single slot, start the pipeline, return immediately. */
+  async create(req: CreateRunRequest): Promise<RunManifest> {
+    const lw = this.deps.registry.get(req.workflowId);
+    if (!lw?.definition) throw new RunValidationError(`Unknown or invalid workflow "${req.workflowId}"`);
+    const def = lw.definition;
+    if (!def.supportedOutputs.includes(req.output)) throw new RunValidationError(`Workflow "${def.id}" does not support output "${req.output}" (supports ${def.supportedOutputs.join(', ')})`);
+    if (req.output === 'video' || req.output === 'gif') throw new RunValidationError('Video and GIF output are not available yet (recording lands in Phase 5)');
+    const params = resolveParameters(def.parameters, req.parameters);
+    if (!params.ok) throw new RunValidationError('Invalid parameters', params.errors.map((e) => ({ path: `parameters.${e.parameter}`, message: e.message })));
+    const presetId = req.preset ?? def.defaults.preset ?? DEFAULT_PRESET_FOR_OUTPUT[req.output];
+    const preset = this.presets.find((p) => p.id === presetId);
+    if (!preset) throw new RunValidationError(`Unknown preset "${presetId}"`);
+    const o = req.overrides;
+    const captureConfig: CaptureConfig = {
+      output: req.output, preset: preset.id,
+      theme: o.theme ?? def.defaults.theme ?? preset.theme,
+      framing: o.framing ?? def.defaults.framing ?? preset.framing,
+      region: o.region, locator: o.locator,
+      width: o.width ?? preset.width, height: o.height ?? preset.height,
+      fps: o.fps ?? preset.fps, cursor: o.cursor ?? def.defaults.cursor ?? preset.cursor, scale: preset.scale,
+    };
+    if (captureConfig.framing === 'region' && !captureConfig.region) throw new RunValidationError('Framing "region" needs overrides.region');
+    if (captureConfig.framing === 'locator' && !captureConfig.locator) throw new RunValidationError('Framing "locator" needs overrides.locator');
+
+    if (this.active) {
+      if (!req.cancelActive) throw new RunConflictError(this.active.runId);
+      await this.cancel(this.active.runId);
+    }
+
+    const runId = `run_${ulid()}`;
+    const artifacts = await RunArtifactStore.create(this.deps.settings.artifactRoot(), runId);
+    const settings = this.deps.settings.get();
+    const manifest: RunManifest = {
+      schemaVersion: MANIFEST_SCHEMA_VERSION, runId, status: 'created', createdAt: new Date().toISOString(),
+      request: { prompt: req.request?.prompt, plan: req.request?.plan },
+      workflow: { id: def.id, name: def.name, feature: def.feature, source: lw.source, sourcePath: lw.sourcePath, snapshot: 'workflow.yaml' },
+      parameters: params.values, capture: captureConfig,
+      bruno: { executablePath: '', version: undefined, mode: 'electron', profileMode: settings.capture.profileMode },
+      ai: req.request?.ai, artifacts: [], steps: [], errors: [],
+      debug: { log: 'debug/run.log', preservedWorkspace: false, intermediates: [] },
+      regenerateOf: req.regenerateOf,
+    };
+    const rec: RunRecord = { manifest, bus: new RunEventBus(), artifacts };
+    this.runs.set(runId, rec);
+    const abort = new AbortController();
+    const done = this.pipeline(rec, req, lw, def, params.values, captureConfig, abort.signal).catch((e) => this.deps.log?.(`pipeline crashed: ${firstLine(e)}`));
+    this.active = { runId, abort, done };
+    void done.finally(() => { if (this.active?.runId === runId) this.active = undefined; });
+    return manifest;
+  }
+
+  async cancel(runId: string): Promise<void> {
+    const a = this.active;
+    if (!a || a.runId !== runId) return;
+    a.abort.abort();
+    await a.done;
+  }
+
+  private setStatus(rec: RunRecord, status: RunStatus): void {
+    rec.manifest.status = status;
+    rec.bus.emit({ type: 'run.status', runId: rec.manifest.runId, at: new Date().toISOString(), status });
+    void rec.artifacts.log({ event: 'status', status });
+  }
+
+  private async pipeline(rec: RunRecord, req: CreateRunRequest, lw: LoadedWorkflow, def: WorkflowDefinition, params: ResolvedParameters, capture: CaptureConfig, signal: AbortSignal): Promise<void> {
+    const { runId } = rec.manifest;
+    const log = (message: string, extra: Record<string, unknown> = {}) => {
+      this.deps.log?.(`[${runId}] ${message}`);
+      void rec.artifacts.log({ level: 'info', message, ...extra });
+      rec.bus.emit({ type: 'run.log', runId, at: new Date().toISOString(), level: 'info', message });
+    };
+    let stopPreview: (() => void) | undefined;
+    const settings = this.deps.settings.get();
+    const profileMode = settings.capture.profileMode;
+
+    try {
+      this.setStatus(rec, 'validating');
+      await rec.artifacts.writeSnapshot(lw.rawText);
+
+      this.setStatus(rec, 'preparing');
+      signal.throwIfAborted();
+      const targetDir = profileMode === 'capture'
+        ? path.join(this.deps.paths.tmpDir, runId, 'workspace')
+        : path.join(this.deps.paths.root, 'runtime-fixtures', def.fixture?.source === 'bundled' ? def.fixture.path : def.id);
+      rec.staged = await stageFixture(def, { fixturesDir: this.deps.fixturesDir, targetDir, parameters: params, refreshInPlace: profileMode === 'user' });
+      if (rec.staged) log(`fixture staged at ${rec.staged.workspacePath}${rec.staged.collectionName ? ` (collection "${rec.staged.collectionName}")` : ''}`);
+
+      const bruno = await this.deps.resolveBruno();
+      if (!bruno.candidate) {
+        const e = new Error(bruno.error ?? 'Bruno was not found') as Error & { code: string; hint: string };
+        e.code = 'bruno_not_found'; e.hint = 'Install Bruno or choose the application in Settings › Bruno.';
+        throw e;
+      }
+      rec.manifest.bruno = { executablePath: bruno.candidate.executablePath, version: bruno.candidate.version, mode: 'electron', profileMode };
+
+      const collection = rec.staged?.collectionPath ? { name: rec.staged.collectionName ?? path.basename(rec.staged.collectionPath), path: rec.staged.collectionPath } : undefined;
+      const selectedEnvironment = typeof params['environment'] === 'string' ? params['environment'] : undefined;
+
+      if (profileMode === 'capture') {
+        // A fresh, seeded profile per run: the collection path changes per run, so the previous session cannot be reused.
+        if (this.sessionAlive()) { await this.session!.close().catch(() => undefined); }
+        this.session = undefined;
+        const profileDir = path.join(this.deps.paths.profileDir, 'default');
+        await rm(profileDir, { recursive: true, force: true });
+        await seedCaptureProfile({ dir: profileDir, collections: collection ? [collection] : [], sidebarWidth: 220, selectedEnvironment, brunoVersion: bruno.candidate.version ?? '0.0.0' });
+        log(`capture profile seeded at ${profileDir}`);
+      } else {
+        const running = await findRunningBruno();
+        const reusable = this.sessionAlive() && this.session!.executablePath === bruno.candidate.executablePath && this.session!.profileMode === 'user';
+        if (running.length && !reusable) {
+          if (!req.allowRelaunch) throw new BrunoAlreadyRunningError(running);
+          log('quitting the running Bruno to relaunch it under automation (user confirmed)');
+          if (!(await quitBrunoGracefully(15_000))) { const e = new Error('Bruno did not quit within 15 s') as Error & { code: string }; e.code = 'bruno_quit_failed'; throw e; }
+          this.session = undefined;
+        }
+        if (collection) {
+          const r = await addCollectionToUserWorkspace({ userDataDir: BRUNO_USER_DATA_DIR, collection, backupDir: path.join(this.deps.paths.backupsDir, runId) });
+          log(r.added ? `added "${collection.name}" to the user workspace (backup in backups/${runId})` : `"${collection.name}" already in the user workspace`);
+        }
+      }
+
+      this.setStatus(rec, 'connecting');
+      signal.throwIfAborted();
+      if (!this.sessionAlive()) {
+        this.session = await launchBruno({
+          executablePath: bruno.candidate.executablePath, profileMode,
+          captureProfileDir: profileMode === 'capture' ? path.join(this.deps.paths.profileDir, 'default') : undefined,
+          existingInstance: 'fail', signal, log: (m) => log(m),
+        });
+      } else log('reusing the running Bruno session');
+      const session = this.session!;
+      rec.manifest.bruno.version = session.version ?? rec.manifest.bruno.version;
+      await setContentSize(session, { width: capture.width, height: capture.height ?? Math.round((capture.width * 10) / 16) });
+      await setTheme(session, capture.theme);
+      log(`Bruno ${session.version ?? '?'} ready: ${capture.width}×${capture.height ?? '?'} ${capture.theme}`);
+
+      this.setStatus(rec, 'running');
+      const captureCtl = new CaptureController(session);
+      let previewSuspended = 0;
+      if (settings.capture.previewEnabled) {
+        let inFlight = false;
+        const timer = setInterval(async () => {
+          if (inFlight || previewSuspended > 0 || session.page.isClosed()) return;
+          inFlight = true;
+          try {
+            const jpg = await session.page.screenshot({ type: 'jpeg', quality: 55, scale: 'css' });
+            rec.bus.emit({ type: 'preview.frame', runId, at: new Date().toISOString(), dataUrl: `data:image/jpeg;base64,${jpg.toString('base64')}`, width: capture.width, height: capture.height ?? 0 });
+          } catch { /* window mid-transition */ } finally { inFlight = false; }
+        }, Math.round(1000 / settings.capture.previewFps));
+        stopPreview = () => clearInterval(timer);
+      }
+      const result = await executeWorkflow({
+        runId, definition: def, parameters: params, captureConfig: capture, session, actions: this.deps.actions, capture: captureCtl,
+        artifacts: rec.artifacts, emit: (e) => rec.bus.emit(e), log, signal, workspacePath: rec.staged?.workspacePath,
+        suspendPreview: async (fn) => { previewSuspended++; try { return await fn(); } finally { previewSuspended--; } },
+      });
+
+      this.setStatus(rec, 'processing');
+      rec.bus.emit({ type: 'processing.started', runId, at: new Date().toISOString() });
+      rec.bus.emit({ type: 'processing.completed', runId, at: new Date().toISOString() });
+      await this.finalize(rec, result.status, result.steps, result.errors, undefined, stopPreview);
+    } catch (e) {
+      if (e instanceof RunCancelled || signal.aborted) {
+        const c = e instanceof RunCancelled ? e : undefined;
+        await this.finalize(rec, 'cancelled', c?.steps ?? [], c?.errors ?? [], undefined, stopPreview);
+      } else if (e instanceof WorkflowStepFailure) {
+        await this.finalize(rec, 'failed', e.steps, e.errors, e.error, stopPreview);
+      } else {
+        const err = e as { code?: string; hint?: string };
+        const fatal: RunError = { code: err.code ?? 'run_failed', message: firstLine(e), hint: err.hint };
+        await this.finalize(rec, 'failed', [], [fatal], fatal, stopPreview);
+      }
+    }
+  }
+
+  private async finalize(rec: RunRecord, status: RunStatus, steps: StepRecord[], errors: RunError[], fatal: RunError | undefined, stopPreview?: () => void): Promise<void> {
+    stopPreview?.();
+    const m = rec.manifest;
+    const { runId } = m;
+    m.steps = steps; m.errors = errors; m.artifacts = rec.artifacts.list(); m.completedAt = new Date().toISOString();
+    const success = status === 'completed' || status === 'completed_with_errors';
+
+    if (rec.staged?.temporary) {
+      if (success) await rm(rec.staged.workspacePath, { recursive: true, force: true }).catch(() => undefined);
+      else {
+        await rename(rec.staged.workspacePath, rec.artifacts.debugWorkspaceDir).then(() => { m.debug.preservedWorkspace = true; }).catch(() => undefined);
+      }
+      await rm(path.join(this.deps.paths.tmpDir, runId), { recursive: true, force: true }).catch(() => undefined);
+    }
+    // Capture mode: we exclusively own that Bruno (PRD §64). User mode: Bruno stays in its final state (PRD §24).
+    if (m.bruno.profileMode === 'capture' && this.sessionAlive()) {
+      await this.session!.close().catch(() => undefined);
+      this.session = undefined;
+    }
+
+    m.status = status;
+    await rec.artifacts.writeManifest(m).catch((e) => this.deps.log?.(`manifest write failed: ${firstLine(e)}`));
+    rec.bus.emit({ type: 'run.status', runId, at: m.completedAt, status });
+    if (status === 'cancelled') rec.bus.emit({ type: 'run.cancelled', runId, at: m.completedAt });
+    else if (status === 'failed') rec.bus.emit({ type: 'run.failed', runId, at: m.completedAt, error: fatal ?? errors[0] ?? { code: 'run_failed', message: 'Run failed' } });
+    else rec.bus.emit({ type: 'run.completed', runId, at: m.completedAt, status: status as 'completed' | 'completed_with_errors' });
+    void rec.artifacts.log({ event: 'finalized', status, artifacts: m.artifacts.length, errors: errors.length });
+    rec.bus.close();
+  }
+
+  /** PRD §72: explicit deletion is the only thing that removes a run. Refuses while it is active. */
+  async delete(runId: string): Promise<boolean> {
+    if (this.active?.runId === runId) throw new RunConflictError(runId);
+    const rec = this.runs.get(runId);
+    const dir = rec?.artifacts.runDir ?? path.join(this.deps.settings.artifactRoot(), runId);
+    if (!/^run_[0-9A-HJKMNP-TV-Z]{26}$/.test(runId)) return false;
+    await rm(dir, { recursive: true, force: true });
+    return this.runs.delete(runId) || true;
+  }
+
+  /** PRD §98: the Library indexes manifests from disk at startup; each becomes a closed run record. */
+  async indexArtifactRoot(): Promise<number> {
+    const root = this.deps.settings.artifactRoot();
+    const { readdir, readFile } = await import('node:fs/promises');
+    const { RunManifestSchema } = await import('@bruno-capture/shared');
+    let count = 0;
+    for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+      if (!entry.isDirectory() || !entry.name.startsWith('run_') || this.runs.has(entry.name)) continue;
+      try {
+        const raw = JSON.parse(await readFile(path.join(root, entry.name, 'manifest.json'), 'utf8'));
+        const parsed = RunManifestSchema.safeParse(raw);
+        if (!parsed.success) { this.deps.log?.(`skipping ${entry.name}: manifest failed validation`); continue; }
+        const bus = new RunEventBus(); bus.close();
+        this.runs.set(entry.name, { manifest: parsed.data, bus, artifacts: await RunArtifactStore.create(root, entry.name) });
+        count++;
+      } catch (e) { this.deps.log?.(`skipping ${entry.name}: ${firstLine(e)}`); }
+    }
+    return count;
+  }
+
+  /** Close the cached Bruno session (server shutdown). */
+  async shutdown(): Promise<void> {
+    if (this.active) await this.cancel(this.active.runId);
+    if (this.sessionAlive()) await this.session!.close().catch(() => undefined);
+    this.session = undefined;
+  }
+}

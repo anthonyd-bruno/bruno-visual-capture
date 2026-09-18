@@ -1,0 +1,61 @@
+version: 1
+
+id: runner-collection-run
+name: Run a Collection
+description: Opens the bundled demo collection in the Bruno Runner, runs it, and captures the results.
+
+feature: runner
+tags: [runner, collection, demo]
+
+supportedOutputs:
+  - screenshots
+  - video
+  - gif
+
+parameters:
+  environment:
+    type: select
+    label: Environment
+    options: [Demo]
+    default: Demo
+
+fixture:
+  source: bundled
+  path: runner/basic-workspace
+
+defaults:
+  preset: demo-video
+
+steps:
+  - action: workspace.open
+    label: Open the demo workspace
+
+  - action: collection.open
+    params:
+      name: Bruno Capture Demo
+
+  - action: environment.select
+    params:
+      name: "{{environment}}"
+
+  - action: runner.open
+
+  - capture:
+      id: runner-open
+      name: Runner ready to run the collection
+
+  - startRecording: {}
+
+  - action: runner.runCollection
+
+  - waitFor:
+      state: runner.complete
+      timeoutMs: 60000
+
+  - pause: 800
+
+  - capture:
+      id: runner-complete
+      name: Collection run results
+
+  - stopRecording: {}

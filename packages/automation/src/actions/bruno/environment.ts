@@ -1,0 +1,45 @@
+import { z } from 'zod';
+import { ActionError, defineAction, expectVisible } from '../types.js';
+
+const TRIGGER = '[data-testid="environment-selector-trigger"]';
+
+export const environmentSelect = defineAction({
+  id: 'environment.select',
+  description: 'Choose a collection environment from the environment selector.',
+  retryable: true,
+  rung: 1,
+  params: z.object({ name: z.string().min(1) }),
+  async execute(ctx, p) {
+    const trigger = ctx.page.locator(TRIGGER).first();
+    await expectVisible('environment.select', 'The environment selector', trigger, ctx.timeoutMs, 'Open a collection first.');
+    if ((await trigger.innerText()).trim().includes(p.name)) { ctx.log(`environment "${p.name}" already selected`); return; }
+    await trigger.click();
+    const item = ctx.page.locator('[data-testid="env-list-item"]', { hasText: p.name }).first();
+    await expectVisible('environment.select', `Environment "${p.name}"`, item, ctx.timeoutMs, 'Check the environment name in the fixture\'s environments/ folder.');
+    await item.click();
+    try {
+      await ctx.page.waitForFunction(([sel, name]) => (document.querySelector(sel!)?.textContent ?? '').includes(name!), [TRIGGER, p.name] as const, { timeout: ctx.timeoutMs });
+    } catch (e) {
+      throw new ActionError('environment.select', `Environment selector did not switch to "${p.name}"`, undefined, e);
+    }
+    ctx.log(`environment "${p.name}" selected`);
+  },
+});
+
+export const environmentOpenEditor = defineAction({
+  id: 'environment.openEditor',
+  description: 'Open the environment editor (Configure) from the selector.',
+  retryable: true,
+  rung: 1,
+  params: z.object({}),
+  async execute(ctx) {
+    const trigger = ctx.page.locator(TRIGGER).first();
+    await expectVisible('environment.openEditor', 'The environment selector', trigger, ctx.timeoutMs);
+    await trigger.click();
+    const configure = ctx.page.locator('[data-testid="configure-env"]');
+    await expectVisible('environment.openEditor', 'The "Configure" button', configure, ctx.timeoutMs);
+    await configure.click();
+    await expectVisible('environment.openEditor', 'The environment editor', ctx.page.locator('[data-testid="save-env"], [data-testid="env-var-name-input"]').first(), ctx.timeoutMs);
+    ctx.log('environment editor open');
+  },
+});

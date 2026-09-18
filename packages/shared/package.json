@@ -1,0 +1,17 @@
+{
+  "name": "@bruno-capture/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zod schemas and shared types",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run --root ../.."
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}

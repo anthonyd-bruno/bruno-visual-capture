@@ -1,0 +1,24 @@
+{
+  "name": "@bruno-capture/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "bru-capture CLI",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run --root ../..",
+    "start": "tsx src/main.ts"
+  },
+  "bin": {
+    "bru-capture": "./bin/bru-capture.mjs"
+  },
+  "dependencies": {
+    "@bruno-capture/ai": "workspace:*",
+    "@bruno-capture/core": "workspace:*",
+    "@bruno-capture/server": "workspace:*",
+    "@bruno-capture/shared": "workspace:*"
+  }
+}

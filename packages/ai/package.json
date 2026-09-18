@@ -1,0 +1,19 @@
+{
+  "name": "@bruno-capture/ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI provider abstraction, OpenAI + Anthropic planners, plan validation, Keychain",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run --root ../.."
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
+    "@bruno-capture/shared": "workspace:*",
+    "openai": "^7.17.0"
+  }
+}
