@@ -61,4 +61,15 @@ describe('library from disk (PRD §98) and archives (§74)', () => {
     const r = await app.inject({ method: 'POST', url: `/api/runs/${RUN}/open`, headers: H, payload: { path: '../manifest.json' } });
     expect(r.statusCode).toBe(400);
   });
+  it('accepts body-less requests that still carry a JSON content-type (the web client\'s DELETE/POST)', async () => {
+    // Fastify's default JSON parser answers 400 "Body cannot be empty" here; that broke deleting library items.
+    const J = { ...H, 'content-type': 'application/json' };
+    expect((await app.inject({ method: 'POST', url: '/api/workflows/refresh', headers: J })).statusCode).toBe(200);
+    const bad = await app.inject({ method: 'POST', url: `/api/runs/${RUN}/open`, headers: J, payload: '{not json' });
+    expect(bad.statusCode).toBe(400);
+    const del = await app.inject({ method: 'DELETE', url: `/api/runs/${RUN}`, headers: J });
+    expect(del.statusCode).toBe(200);
+    expect(del.json()).toEqual({ deleted: RUN });
+    expect((await app.inject({ method: 'GET', url: `/api/runs/${RUN}`, headers: H })).statusCode).toBe(404);
+  });
 });

@@ -239,6 +239,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
+    allowNegative: true, // `--no-open`, as the usage text promises
     options: {
       help: { type: 'boolean', short: 'h' },
       port: { type: 'string' },

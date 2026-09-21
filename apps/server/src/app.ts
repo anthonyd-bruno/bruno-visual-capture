@@ -13,6 +13,13 @@ export interface BuildAppOptions { logger?: boolean; serveWeb?: boolean }
 
 export async function buildApp(ctx: ServerContext, opts: BuildAppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 1024 * 1024, trustProxy: false });
+  // Tolerate `content-type: application/json` with no body (DELETEs from fetch/curl clients that always set the header);
+  // Fastify's default parser answers 400 "Body cannot be empty" instead.
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    if (typeof body !== 'string' || body.trim() === '') { done(null, undefined); return; }
+    try { done(null, JSON.parse(body)); }
+    catch (e) { const err = e as Error & { statusCode?: number; code?: string }; err.statusCode = 400; err.code = 'invalid_json'; err.message = `Request body is not valid JSON: ${err.message}`; done(err, undefined); }
+  });
   let port = 0;
   app.decorate('setBoundPort', (p: number) => { port = p; });
   registerLocalOnlyGuard(app, () => port);

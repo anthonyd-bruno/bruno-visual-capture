@@ -5,7 +5,11 @@ export class ApiError extends Error {
 }
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
+  // Only claim a JSON body when there is one: Fastify rejects `content-type: application/json` with an empty body
+  // ("Body cannot be empty…"), which broke every body-less DELETE (runs, generated workflows, imports, API keys).
+  const headers: Record<string, string> = { ...(init?.headers as Record<string, string> ?? {}) };
+  if (init?.body != null && !headers['content-type']) headers['content-type'] = 'application/json';
+  const res = await fetch(url, { ...init, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) { const e = body?.error ?? {}; throw new ApiError(res.status, e.code ?? 'error', e.message ?? res.statusText, e.details); }
   return body as T;
