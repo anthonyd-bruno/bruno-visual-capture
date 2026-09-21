@@ -1,0 +1,52 @@
+version: 1
+id: request-create
+name: Create a Request
+description: Creates a new HTTP request from the New Request dialog (name, method, URL), then sends it and shows the response.
+feature: authoring
+tags: [request, create, authoring]
+supportedOutputs: [screenshots, video, gif]
+parameters:
+  name:
+    type: string
+    label: Request name
+    default: List comments
+  method:
+    type: select
+    label: Method
+    options: [GET, POST, PUT, PATCH, DELETE]
+    default: GET
+  url:
+    type: string
+    label: URL
+    description: Typed into the dialog as-is (use a full URL; environment variables would be read as workflow parameters here).
+    default: https://jsonplaceholder.typicode.com/comments?postId=1
+fixture:
+  source: bundled
+  path: authoring/blog-api
+defaults:
+  preset: demo-video
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: Blog API }
+  - capture:
+      id: collection-before
+      name: Collection before the new request
+  - startRecording: {}
+  - action: request.create
+    params: { name: "{{name}}", method: "{{method}}", url: "{{url}}", collection: Blog API }
+    label: Create the request from the New Request dialog
+  - waitFor:
+      state: request.open
+  - pause: 2400   # lets the "New request created" toast fade before the still
+  - capture:
+      id: request-created
+      name: New request open in the editor
+  - action: request.send
+  - waitFor:
+      state: response.received
+  - pause: 700
+  - capture:
+      id: new-request-response
+      name: Response from the new request
+  - stopRecording: {}

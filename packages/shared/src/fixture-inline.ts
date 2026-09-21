@@ -8,6 +8,9 @@ import { IdentifierSchema } from './common.js';
  */
 export const HttpMethodSchema = z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 
+/** Bruno 4.1.0's Assert tab operators (measured S12). */
+export const AssertionOperatorSchema = z.enum(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn', 'contains', 'notContains', 'length', 'matches', 'notMatches', 'startsWith', 'endsWith', 'between', 'isEmpty', 'isNotEmpty', 'isNull', 'isUndefined', 'isDefined', 'isTruthy', 'isFalsy', 'isJson', 'isNumber', 'isString', 'isBoolean', 'isArray']);
+
 export const InlineAuthSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('none') }),
   z.strictObject({ type: z.literal('inherit') }),
@@ -25,7 +28,14 @@ export const InlineRequestSchema = z.strictObject({
   params: z.array(z.strictObject({ name: z.string().min(1), value: z.string() })).default([]),
   body: z.strictObject({ type: z.enum(['json', 'text']), data: z.string() }).optional(),
   auth: InlineAuthSchema.default({ type: 'inherit' }),
+  /** Markdown shown on the request's Docs tab. */
   docs: z.string().optional(),
+  /** Request-level (pre-request) variables — the Vars tab; usable as {{name}} in this request. */
+  variables: z.array(z.strictObject({ name: IdentifierSchema, value: z.string() })).default([]),
+  /** Script tab (Pre Request / Post Response) and Tests tab contents — Bruno's `bru`, `req`, `res`, `test`, `expect` API. */
+  scripts: z.strictObject({ beforeRequest: z.string().optional(), afterResponse: z.string().optional(), tests: z.string().optional() }).optional(),
+  /** Assert tab rows, e.g. `{ expression: res.status, operator: eq, value: "200" }`. */
+  assertions: z.array(z.strictObject({ expression: z.string().min(1), operator: AssertionOperatorSchema.default('eq'), value: z.string().default('') })).default([]),
 });
 
 export const InlineEnvironmentSchema = z.strictObject({

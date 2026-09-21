@@ -1,0 +1,43 @@
+version: 1
+id: request-variables
+name: Use Variables in a Request
+description: Shows a URL built from environment, collection and request variables, the request's Vars tab, and the response once they resolve.
+feature: variables
+tags: [variables, vars, environment, collection]
+supportedOutputs: [screenshots, video, gif]
+fixture:
+  source: bundled
+  path: variables/jsonplaceholder-vars
+defaults:
+  preset: docs-screenshot
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: Variables Demo }
+  - action: request.open
+    params: { name: Get user by id }
+  - pause: 500
+  - capture:
+      id: url-with-variables
+      name: URL built from environment and request variables
+  - action: request.selectTab
+    params: { tab: vars }
+  - pause: 500
+  - capture:
+      id: request-variables
+      name: Request variables on the Vars tab
+  - action: request.selectTab
+    params: { tab: headers }
+  - pause: 500
+  - capture:
+      id: header-with-collection-variable
+      name: Header using a collection variable
+  - startRecording: {}
+  - action: request.send
+  - waitFor:
+      state: response.received
+  - pause: 700
+  - capture:
+      id: resolved-response
+      name: Response for the resolved URL
+  - stopRecording: {}

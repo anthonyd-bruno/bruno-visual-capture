@@ -20,6 +20,8 @@ export const STATES: Readonly<Record<string, StateCheck>> = {
   'modal.open': { locator: '[data-testid="simple-modal-overlay"], [class*="modal"] [data-testid="modal-close-button"]', visible: true },
   'modal.closed': { locator: '[data-testid="simple-modal-overlay"], [class*="modal"] [data-testid="modal-close-button"]', visible: false },
   'settings.open': { locator: '[data-testid="settings-tab-bar"]', visible: true },
+  'settings.folderOpen': { locator: '[data-testid="folder-settings-tab-headers"]', visible: true },
+  'codegen.open': { locator: '[data-testid="interpolate-vars-toggle"]', visible: true },
   'mockServer.running': {
     describe: 'mock server status text says running',
     predicate: async (page) => /running/i.test((await page.locator('[data-testid="mock-server-status-text"]').first().innerText().catch(() => '')) ?? ''),

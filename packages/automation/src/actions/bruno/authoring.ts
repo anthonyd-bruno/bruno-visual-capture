@@ -2,6 +2,7 @@ import type { Locator } from 'playwright';
 import { z } from 'zod';
 import { ActionError, defineAction, expectVisible, type ActionContext } from '../types.js';
 import { collectionRow, SIDEBAR_ITEM } from './collection.js';
+import { selectPaneTab } from './tabs.js';
 
 /**
  * Phase 9 authoring actions, measured S10 on Bruno 4.1.0: the New Request modal
@@ -105,9 +106,7 @@ export const requestSetMethod = defineAction({
 });
 
 async function selectRequestTab(ctx: ActionContext, actionId: string, tab: string): Promise<void> {
-  const loc = ctx.page.locator(`[data-testid="request-pane"] [data-testid="responsive-tab-${tab}"]`).filter({ visible: true }).first();
-  await expectVisible(actionId, `The "${tab}" tab`, loc, ctx.timeoutMs, 'Open a request first.');
-  if (!(await loc.evaluate((el) => el.classList.contains('active')).catch(() => false))) await ctx.cursor.click(loc);
+  await selectPaneTab(actionId, ctx, 'request-pane', tab);
 }
 
 export const requestSetBody = defineAction({
@@ -134,10 +133,11 @@ export const requestSetBody = defineAction({
 
 /** Bruno masks secret auth fields (bearer token, password, API-key value) as ****; the eye button next to the field shows the plain value (measured S11). */
 async function revealSecrets(ctx: ActionContext, actionId: string): Promise<void> {
-  const toggle = ctx.page.locator('[data-testid="request-pane"] [data-testid="secret-reveal-toggle"]').filter({ visible: true }).first();
-  await expectVisible(actionId, 'The reveal-secret (eye) button', toggle, ctx.timeoutMs, 'Only masked auth fields (bearer, basic password, API key value) have one.');
   const masked = () => ctx.page.locator('[data-testid="request-pane"] .CodeMirror').evaluateAll((els) => els.some((e) => /^\s*\*{3,}/.test((e as HTMLElement).innerText.replace(/\u200b/g, '').trim())));
-  if (!(await masked())) { ctx.log('secrets already visible'); return; }
+  // Nothing masked (API-key values are shown in plain text in 4.1.0, measured Phase 11) \u2192 nothing to do.
+  if (!(await masked())) { ctx.log('no masked secret on this tab \u2014 nothing to reveal'); return; }
+  const toggle = ctx.page.locator('[data-testid="request-pane"] [data-testid="secret-reveal-toggle"]').filter({ visible: true }).first();
+  await expectVisible(actionId, 'The reveal-secret (eye) button', toggle, ctx.timeoutMs, 'Only masked auth fields (bearer token, basic password) have one.');
   await ctx.cursor.click(toggle);
   try { await ctx.page.waitForFunction(() => ![...document.querySelectorAll('[data-testid="request-pane"] .CodeMirror')].some((e) => /^\s*\*{3,}/.test((e as HTMLElement).innerText.replace(/\u200b/g, '').trim())), undefined, { timeout: 5000 }); }
   catch (e) { throw new ActionError(actionId, 'The secret stayed masked after clicking the reveal button', undefined, e); }
@@ -154,7 +154,7 @@ export const requestRevealSecret = defineAction({
 
 export const requestSetAuth = defineAction({
   id: 'request.setAuth',
-  description: 'Set the auth mode of the open request (bearer, basic, apikey, none, inherit) and fill its fields. Bruno masks the secret as ****; reveal=true shows it in plain text afterwards. Does not save.',
+  description: 'Set the auth mode of the open request (bearer, basic, apikey, none, inherit) and fill its fields. Bruno masks bearer tokens and passwords as ****; reveal=true shows them in plain text afterwards (API-key values are never masked). Does not save.',
   retryable: false, rung: 1,
   params: z.object({
     mode: z.enum(['bearer', 'basic', 'apikey', 'none', 'inherit', 'digest', 'oauth2', 'awsv4']),

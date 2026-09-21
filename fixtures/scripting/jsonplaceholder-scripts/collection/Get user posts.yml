@@ -1,0 +1,32 @@
+info:
+  name: Get user posts
+  type: http
+  seq: 2
+
+http:
+  method: GET
+  url: "{{baseUrl}}/posts"
+  params:
+    - name: userId
+      value: "{{userId}}"
+      type: query
+  headers:
+    - name: Accept
+      value: application/json
+  auth: inherit
+
+runtime:
+  variables:
+    - name: userId
+      value: "1"
+  scripts:
+    - type: before-request
+      code: |-
+        // Reuse what the previous request stored.
+        console.log("Loading posts by", bru.getVar("userName") || "an unknown user");
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

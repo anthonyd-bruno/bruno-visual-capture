@@ -1,0 +1,48 @@
+info:
+  name: Get user
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "{{baseUrl}}/users/{{userId}}"
+  headers:
+    - name: Accept
+      value: application/json
+  auth: inherit
+
+runtime:
+  variables:
+    - name: userId
+      value: "1"
+  scripts:
+    - type: before-request
+      code: |-
+        // Runs before the request is sent.
+        const requestedAt = new Date().toISOString();
+        bru.setVar("requestedAt", requestedAt);
+        req.setHeader("X-Requested-At", requestedAt);
+    - type: after-response
+      code: |-
+        // Runs after the response arrives.
+        const user = res.getBody();
+        bru.setVar("userName", user.name);
+        bru.setVar("userCompany", user.company.name);
+        console.log("Fetched", user.name, "from", user.company.name);
+    - type: tests
+      code: |-
+        test("post-response script stored the user's name", function () {
+          expect(bru.getVar("userName")).to.equal(res.getBody().name);
+        });
+
+docs: |-
+  # Get user
+
+  The **pre-request** script stamps the request with `X-Requested-At`; the **post-response** script keeps the
+  user's name and company in runtime variables for later requests.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

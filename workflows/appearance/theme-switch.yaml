@@ -1,0 +1,38 @@
+version: 1
+id: theme-switch
+name: Switch Between Light and Dark Themes
+description: Shows the same request in the light theme, switches to dark, and back.
+feature: appearance
+tags: [theme, dark, light, appearance]
+supportedOutputs: [screenshots, video, gif]
+fixture:
+  source: bundled
+  path: request-execution/jsonplaceholder
+defaults:
+  preset: docs-gif
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: JSONPlaceholder }
+  - action: request.open
+    params: { name: Create post }
+  - action: request.selectTab
+    params: { tab: body }
+  - action: theme.set
+    params: { theme: light }
+  - pause: 600
+  - capture:
+      id: theme-light
+      name: Light theme
+  - startRecording: {}
+  - pause: 800
+  - action: theme.set
+    params: { theme: dark }
+  - pause: 1200
+  - capture:
+      id: theme-dark
+      name: Dark theme
+  - action: theme.set
+    params: { theme: light }
+  - pause: 1000
+  - stopRecording: {}

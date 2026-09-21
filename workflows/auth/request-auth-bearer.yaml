@@ -1,0 +1,45 @@
+version: 1
+id: request-auth-bearer
+name: Add a Bearer Token
+description: Switches a request's Auth tab to Bearer Token, enters the token, sends the request and shows httpbin confirming the token it received.
+feature: auth
+tags: [auth, bearer, token]
+supportedOutputs: [screenshots, video, gif]
+parameters:
+  token:
+    type: string
+    label: Bearer token
+    default: demo-bearer-token-123
+  revealSecret:
+    type: boolean
+    label: Show the token in plain text
+    description: Bruno masks it as **** by default.
+    default: true
+fixture:
+  source: bundled
+  path: auth/httpbin
+defaults:
+  preset: docs-gif
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: Auth Demo }
+  - action: request.open
+    params: { name: Bearer auth }
+  - startRecording: {}
+  - action: request.setAuth
+    params: { mode: bearer, token: "{{token}}", reveal: "{{revealSecret}}" }
+    label: Choose Bearer Token and enter the token
+  - pause: 600
+  - capture:
+      id: auth-bearer-configured
+      name: Bearer token configured
+  - action: request.send
+  - waitFor:
+      state: response.received
+      timeoutMs: 30000
+  - pause: 700
+  - capture:
+      id: auth-bearer-response
+      name: Response confirming the token was sent
+  - stopRecording: {}

@@ -1,0 +1,48 @@
+version: 1
+id: request-auth-basic
+name: Add Basic Authentication
+description: Switches a request's Auth tab to Basic Auth, enters the username and password, and sends it to an endpoint that only accepts those credentials.
+feature: auth
+tags: [auth, basic, username, password]
+supportedOutputs: [screenshots, video, gif]
+parameters:
+  username:
+    type: string
+    label: Username
+    default: demo
+  password:
+    type: string
+    label: Password
+    default: secret
+  revealSecret:
+    type: boolean
+    label: Show the password in plain text
+    default: false
+fixture:
+  source: bundled
+  path: auth/httpbin
+defaults:
+  preset: docs-gif
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: Auth Demo }
+  - action: request.open
+    params: { name: Basic auth }
+  - startRecording: {}
+  - action: request.setAuth
+    params: { mode: basic, username: "{{username}}", password: "{{password}}", reveal: "{{revealSecret}}" }
+    label: Choose Basic Auth and enter the credentials
+  - pause: 600
+  - capture:
+      id: auth-basic-configured
+      name: Basic auth configured
+  - action: request.send
+  - waitFor:
+      state: response.received
+      timeoutMs: 30000
+  - pause: 700
+  - capture:
+      id: auth-basic-response
+      name: Authenticated response
+  - stopRecording: {}

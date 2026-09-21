@@ -1,0 +1,32 @@
+info:
+  name: Get user by id
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "{{baseUrl}}/users/{{userId}}"
+  headers:
+    - name: Accept
+      value: application/json
+    - name: X-Api-Version
+      value: "{{apiVersion}}"
+  auth: inherit
+
+runtime:
+  variables:
+    - name: userId
+      value: "2"
+      description: Which user to load
+
+docs: |-
+  # Get user by id
+
+  `{{baseUrl}}` comes from the **environment**, `{{apiVersion}}` from the **collection** variables and
+  `{{userId}}` from this request's **Vars** tab.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

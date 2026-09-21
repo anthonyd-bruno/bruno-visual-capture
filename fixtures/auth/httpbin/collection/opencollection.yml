@@ -1,0 +1,11 @@
+opencollection: 1.0.0
+
+info:
+  name: Auth Demo
+  description: Requests whose responses show which authentication was applied.
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

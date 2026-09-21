@@ -20,12 +20,20 @@ function requestYaml(r: InlineRequest, seq: number): string {
     case 'basic': http['auth'] = { type: 'basic', username: r.auth.username, password: r.auth.password }; break;
     case 'apikey': http['auth'] = { type: 'apikey', key: r.auth.key, value: r.auth.value, placement: r.auth.placement }; break;
   }
-  const doc: Record<string, unknown> = {
-    info: { name: r.name, type: 'http', seq },
-    http,
-    settings: { encodeUrl: true, timeout: 0, followRedirects: true, maxRedirects: 5 },
-  };
+  const doc: Record<string, unknown> = { info: { name: r.name, type: 'http', seq }, http };
+  // `runtime` is where Bruno 4.1 keeps request vars, scripts, tests and assertions (measured S12):
+  // scripts are `{type: before-request|after-response|tests, code}`, assertions `{expression, operator, value}`.
+  const runtime: Record<string, unknown> = {};
+  if (r.variables?.length) runtime['variables'] = r.variables.map((v) => ({ name: v.name, value: v.value }));
+  const scripts: Array<{ type: string; code: string }> = [];
+  if (r.scripts?.beforeRequest) scripts.push({ type: 'before-request', code: r.scripts.beforeRequest });
+  if (r.scripts?.afterResponse) scripts.push({ type: 'after-response', code: r.scripts.afterResponse });
+  if (r.scripts?.tests) scripts.push({ type: 'tests', code: r.scripts.tests });
+  if (scripts.length) runtime['scripts'] = scripts;
+  if (r.assertions?.length) runtime['assertions'] = r.assertions.map((a) => ({ expression: a.expression, operator: a.operator, value: a.value }));
+  if (Object.keys(runtime).length) doc['runtime'] = runtime;
   if (r.docs) doc['docs'] = r.docs;
+  doc['settings'] = { encodeUrl: true, timeout: 0, followRedirects: true, maxRedirects: 5 };
   return toYaml(doc, { lineWidth: 0 });
 }
 

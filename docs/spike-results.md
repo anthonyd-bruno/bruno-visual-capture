@@ -311,3 +311,42 @@ be exercised: the stored key is rate-limited/quota-exceeded (`429`).
 | Start | Feedback | Result |
 |---|---|---|
 | bearer-token GIF run (generated workflow, 10 steps) | "don't obscure the token entered" | one-param change `request.setAuth … reveal: true`, confidence 0.95, everything else copied verbatim; generated file updated in place; regenerated GIF (2.9 s, 1000×626) + 2 PNGs showing the plain token. Refine call ≈ 12 s, whole loop 19 s |
+
+## Phase 11 — more built-in workflows (measured 2026-09-21, Bruno 4.1.0, capture profile)
+
+Measurement spikes first (`spikes/s12-yaml-shapes.mjs`, `s12b-collection-yaml.mjs`, `s12c-overflow-collection.mjs`):
+Bruno wrote the `runtime:` / collection `request:` YAML shapes itself, and the Assert / Tests / Script / Vars / Docs
+tabs, the pane-tab overflow menu, the collection auth menu, the Generate Code and Clone dialogs and the folder
+settings tabs were inventoried (see `docs/bruno-automation-surface.md`, Phase 11 audit). Then every new workflow ran
+end to end via `bru-capture run <id> --output …` against `BRU_CAPTURE_HOME` = a scratch home:
+
+| Workflow | Feature | Captures | Screenshots run | GIF / MP4 |
+|---|---|---|---|---|
+| `request-create` | authoring | collection-before, request-created, new-request-response | 8.7 s | — |
+| `request-headers-and-params` | authoring | query-param-added, header-added, filtered-response | 5.7 s | — |
+| `request-organize` | authoring | folder-created, request-cloned | 10.1 s (2.4 s toast pauses) | — |
+| `request-auth-bearer` | auth | auth-bearer-configured, auth-bearer-response | 5.3 s | GIF 6.3 s run, 1000×626 ✓ |
+| `request-auth-basic` | auth | auth-basic-configured, auth-basic-response | 5.1 s | — |
+| `request-auth-apikey` | auth | auth-apikey-configured, auth-apikey-response | 5.8 s | — |
+| `collection-auth-inherit` | auth | collection-auth-configured, request-auth-inherited, inherited-auth-response | 9.6 s | MP4 14.3 s run, 1920×1080 ✓ |
+| `request-tests-and-assertions` | testing | assertions-configured, tests-script, test-results | 5.0 s | GIF 5.2 s run ✓ |
+| `request-scripts` | scripting | script-pre-request, script-post-response, script-response, script-test-result | 5.7 s | — |
+| `request-variables` | variables | url-with-variables, request-variables, header-with-collection-variable, resolved-response | 5.3 s | — |
+| `collection-settings-tour` | collection-settings | settings-overview, -headers, -vars, -auth, -script | 5.7 s | — |
+| `request-generate-code` | code-generation | generated-code | 4.5 s | — |
+| `response-inspect` | response | response-body, response-headers | 4.4 s | — |
+| `theme-switch` | appearance | theme-light, theme-dark | 6.8 s | GIF 7.2 s run ✓ |
+
+= 19 built-in workflows, 14 feature areas, 47 screenshot states. All 14 new ones completed on the first live pass;
+httpbin answered the three auth requests with the expected 200s (bearer echo, basic-auth `authenticated: true`,
+`/headers` showing `X-Api-Key`).
+
+- One first-pass surprise: `request.setAuth {mode: apikey, reveal: true}` failed because **API-key values are not
+  masked** (no eye button). The self-healer (Anthropic) diagnosed it correctly in 5.7 s — "the value is shown in plain
+  text, so no eye button exists" — and the run completed; the actions now treat "nothing masked" as a no-op and the
+  workflow dropped the parameter.
+- Toasts ("Folder created", "Request cloned!", "New request …") were visible in first-pass stills; those workflows
+  now pause 2.4 s before capturing.
+- The Docs tab is hidden behind the pane's `…` overflow at 1600 px once a request has vars/scripts/asserts;
+  `request.selectTab` resolves it through `menu-dropdown-docs` (verified in S12c).
+- `theme.set` (localStorage + reload) works mid-recording; the GIF shows light → dark → light.

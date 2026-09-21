@@ -1,0 +1,11 @@
+opencollection: 1.0.0
+
+info:
+  name: Blog API
+  description: Posts and users from JSONPlaceholder — the collection the authoring workflows edit.
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

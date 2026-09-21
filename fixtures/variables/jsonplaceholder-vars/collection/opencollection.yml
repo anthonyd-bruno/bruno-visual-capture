@@ -1,0 +1,15 @@
+opencollection: 1.0.0
+
+info:
+  name: Variables Demo
+  description: Environment, collection and request variables working together.
+request:
+  variables:
+    - name: apiVersion
+      value: v1
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

@@ -1,0 +1,43 @@
+info:
+  name: List posts
+  type: http
+  seq: 2
+
+http:
+  method: GET
+  url: "{{baseUrl}}/posts"
+  headers:
+    - name: Accept
+      value: application/json
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("returns a list of posts", function () {
+          expect(res.getStatus()).to.equal(200);
+          expect(res.getBody()).to.be.an("array");
+        });
+
+        test("every post has a title", function () {
+          res.getBody().forEach(function (post) {
+            expect(post.title).to.be.a("string");
+          });
+        });
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body
+      operator: isArray
+      value: ""
+    - expression: res.body
+      operator: length
+      value: "100"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

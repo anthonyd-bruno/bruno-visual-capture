@@ -1,0 +1,30 @@
+opencollection: 1.0.0
+
+info:
+  name: Orders API
+  description: Demo collection with collection-level headers, variables, auth and scripts.
+request:
+  headers:
+    - name: Accept
+      value: application/json
+    - name: X-Client
+      value: bruno-docs
+  auth:
+    type: bearer
+    token: orders-api-token-2026
+  variables:
+    - name: apiVersion
+      value: v1
+    - name: pageSize
+      value: "5"
+  scripts:
+    - type: before-request
+      code: |-
+        // Runs before every request in this collection.
+        bru.setVar("collectionStartedAt", new Date().toISOString());
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

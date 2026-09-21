@@ -549,10 +549,46 @@ excludes CI as a *product* feature; this is just our own tests.
 
 ---
 
+### Phase 11 — More built-in workflows (added 2026-09-21)
+
+**Goal:** widen the deterministic vocabulary the planner reuses and composes from: 14 new built-in workflows over
+9 new feature areas, each backed by a bundled fixture and verified live on Bruno 4.1.0.
+
+- **Measured first (S12 / S12b / S12c):** the `runtime:` YAML Bruno writes for request vars, scripts
+  (`before-request` / `after-response` / `tests`) and assertions; collection-level `request:` settings; the Assert /
+  Tests / Script / Vars / Docs tab ids; the pane-tab overflow menu (`menu-dropdown-<tab>`); the collection auth menu
+  (`menu-dropdown-<mode>`, different from the request editor's); the Generate Code and Clone dialogs; folder
+  settings tabs; that API-key values are never masked; that CodeMirror auto-closes brackets (so scripts/bodies belong
+  in fixtures, not in typed steps). Recorded in `docs/bruno-automation-surface.md`.
+- **Actions:** `request.selectTab` / `response.selectTab` fall back to the overflow menu; new
+  `request.selectScriptPhase`, `request.clone`, `request.generateCode`, `collection.addHeader`, `collection.addVar`,
+  `collection.setAuth`, `collection.saveSettings`, `folder.openSettings`; states `codegen.open`, `settings.folderOpen`;
+  `request.setAuth reveal` / `request.revealSecret` are no-ops when nothing is masked.
+- **Fixtures:** `auth/httpbin` (responses prove the auth), `authoring/blog-api`, `testing/jsonplaceholder-tests`,
+  `scripting/jsonplaceholder-scripts`, `variables/jsonplaceholder-vars`, `collection-settings/orders-api`. Inline
+  collections (Phase 9) gained `variables`, `scripts {beforeRequest, afterResponse, tests}` and `assertions`, written in
+  the same `runtime:` shape.
+- **Workflows:** authoring `request-create`, `request-headers-and-params`, `request-organize`; auth
+  `request-auth-bearer|basic|apikey`, `collection-auth-inherit`; testing `request-tests-and-assertions`; scripting
+  `request-scripts`; variables `request-variables`; collection-settings `collection-settings-tour`; code-generation
+  `request-generate-code`; response `response-inspect`; appearance `theme-switch`.
+- **Guard rails:** `packages/core/test/builtins.test.ts` loads the shipped `workflows/` + `fixtures/`, requires zero
+  invalid files, unique ids, and that every action step's params (with parameter defaults templated in) satisfy the
+  registered action's schema, every `waitFor.state` / `region` exists, and every `collection.open` names the fixture's
+  collection. `inline-fixture.test.ts` pins the `runtime:` YAML shape.
+- **Gotcha kept visible:** `{{name}}` in workflow action params is a *parameter* template; environment variables in
+  typed URLs would fail the step, so `request-create` types a literal URL.
+
 ## 7b. Implementation status (2026-09-18)
 
 Built and verified against Bruno 4.1.0 on this machine — see `docs/spike-results.md` for numbers:
 
+- **Phase 11** complete (2026-09-21): 14 new built-in workflows over 9 new feature areas (authoring, auth,
+  testing, scripting, variables, collection-settings, code-generation, response, appearance) with 6 new bundled
+  fixtures — 19 built-ins / 14 feature areas / 47 screenshot states in total; every new workflow ran clean live in the
+  capture profile (screenshots 4–10 s, GIF 5–7 s, MP4 14 s). New actions for script phases, cloning, code generation
+  and collection/folder settings; pane tabs resolve through the overflow menu; inline collections carry vars,
+  scripts, tests and assertions. `builtins.test.ts` validates every shipped step against the real action schemas.
 - **Phase 0** complete (S1–S7). **Phase 1** complete: workspace, `shared` schemas (45 unit tests
   across packages), Fastify backend with loopback/Origin guard, settings + workflow-sources stores,
   system status, `bru-capture` / `bru-capture doctor`, React shell (Capture, Run, Workflows, Library,

@@ -1,0 +1,33 @@
+info:
+  name: Create post
+  type: http
+  seq: 3
+
+http:
+  method: POST
+  url: "{{baseUrl}}/posts"
+  headers:
+    - name: Accept
+      value: application/json
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "title": "Hello from Bruno",
+        "body": "Captured by Bruno Capture",
+        "userId": 1
+      }
+  auth: inherit
+
+docs: |-
+  # Create post
+
+  Creates a post; JSONPlaceholder echoes it back with a new `id`.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

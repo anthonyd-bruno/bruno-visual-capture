@@ -1,0 +1,23 @@
+info:
+  name: API key
+  type: http
+  seq: 3
+
+http:
+  method: GET
+  url: "{{baseUrl}}/headers"
+  headers:
+    - name: Accept
+      value: application/json
+  auth: inherit
+
+docs: |-
+  # API key
+
+  `GET /headers` echoes the request headers, so an API key sent as a header shows up in the response.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

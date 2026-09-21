@@ -1,0 +1,11 @@
+opencollection: 1.0.0
+
+info:
+  name: Testing Demo
+  description: Requests with assertions and test scripts that pass against JSONPlaceholder.
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

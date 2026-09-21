@@ -201,3 +201,80 @@ Bearer tokens, basic-auth passwords and API-key values are rendered as `*` CodeM
 underlying text is intact). One `secret-reveal-toggle` `<button>` per masked field sits next to it and
 switches the field to plain text; clicking it again masks it. `request.setAuth { reveal: true }` and
 `request.revealSecret` use it — this is what "don't obscure the token" maps to.
+
+## Phase 11 audit — scripts, tests, settings, code generation (S12/S12b/S12c, measured 2026-09-21)
+
+What the fourteen Phase 11 built-in workflows and the new `request.*` / `collection.*` / `folder.*` actions rely on.
+
+- **Assert tab**: `assertions-table` → rows with `column-name` (a plain `<input>`, placeholder "Expr"), `column-operator`
+  (`assertion-operator-select`, a native `<select>` of `eq neq gt gte lt lte in notIn contains notContains length matches
+  notMatches startsWith endsWith between isEmpty isNotEmpty isNull isUndefined isDefined isTruthy isFalsy isJson isNumber
+  isString isBoolean isArray`), `column-value` (CodeMirror), `column-description`. Typing in the trailing row appends a row.
+- **Tests tab**: `test-script-editor` (CodeMirror). **Script tab**: sub-tab buttons `tab-trigger-pre-request` /
+  `tab-trigger-post-response` (**Post Response is the default**), editors `pre-request-script-editor` /
+  `post-response-script-editor`. **Vars tab**: `request-vars-req` / `request-vars-res` tables (+ `-sort-toggle`).
+  **Docs tab**: `docs-edit-toggle`, `docs-editor` (file-authored `docs:` renders as Markdown).
+- **Tab overflow**: at 1600 × 1000 with the default sidebar a request that has vars/scripts/asserts shows
+  `Params Body Headers Auth Vars Script Assert Tests` and folds the rest into `menu-dropdown` →
+  `menu-dropdown-<docs|file|settings|history>` (`role=menuitem`). Picking one makes `responsive-tab-<tab>` visible and
+  active; `request.selectTab` / `response.selectTab` fall back to this menu.
+- **Response Tests tab**: `test-result-item`, `test-result-icon-pass` / `-fail`; heading text
+  "Tests (n), Passed: x, Failed: y" then "Assertions (n), Passed: x, Failed: y" and per-row `res.status: eq 200`.
+  A syntax error in the tests script shows a `script-error-card` (`script-error-message`, `script-error-stack-toggle`).
+- **CodeMirror auto-closes brackets and quotes**: typing `{` or `(` inserts the closer, so JavaScript/JSON typed live gains
+  duplicate closers (the S12 typed test ended with an extra `})` and failed with "expecting catch or finally"). Bodies,
+  scripts and tests belong in the fixture files; live typing is for flat values.
+- **Generate Code dialog** (`collection-item-menu-generate-code`): `modal-close-button`, `interpolate-vars-toggle`, an
+  id-less native `<select>` (`.native-select`) of languages `Shell C Clojure Crystal C# Go HTTP Java JavaScript Kotlin
+  Node.js Objective-C OCaml PHP Powershell Python R Ruby Rust Swift`, per-language variant buttons (`.lib-btn`, Shell:
+  curl / httpie / wget) and a copy button. `request.generateCode` selects by option label and clicks variants by
+  accessible name.
+- **Clone dialog** (`collection-item-menu-clone`): one plain input (placeholder "Enter Item name", prefilled "<name> copy"),
+  buttons Options / Cancel / `clone-item-button`; a "Request cloned!" toast follows (~2 s).
+- **Collection Settings**: Overview has `docs-edit-toggle`, `info-version-row/-value/-change`; Headers → `collection-headers`
+  table (`column-name` / `column-value` / `column-description`); Vars → `collection-vars-req`; Auth → `auth-mode-selector`
+  whose menu is `menu-dropdown-dropdown` with items **`menu-dropdown-<awsv4|basic|wsse|bearer|digest|ntlm|oauth1|oauth2|
+  apikey|akamai-edgegrid|none>`** (not the request editor's `auth-mode-dropdown-*`), unlabelled CodeMirror fields and a
+  `secret-reveal-toggle`, plus a Save button; Script → the same `tab-trigger-*` buttons with
+  `collection-pre-request-script-editor` / `collection-post-response-script-editor`. ⌘S on a settings tab saves and
+  toasts "Collection Settings saved successfully". Unsaved settings do **not** apply to sends — `collection.saveSettings`
+  first (the collection-auth-inherit workflow depends on it).
+- **Folder settings** (`collection-item-menu-settings` on a folder row): `folder-settings-tab-<headers|script|test|vars|auth|docs>`
+  (note `test`, singular), `editable-table`, `bulk-edit-toggle`; `folder.yml` is `info: {name, type: folder, seq}` +
+  `request: {auth: inherit}`.
+- **API-key values are not masked** (no eye button) — only bearer tokens and basic passwords are; `request.setAuth reveal`
+  and `request.revealSecret` are no-ops when nothing on the tab is masked.
+
+### YAML Bruno 4.1.0 writes for request runtime and collection settings (drives the fixtures and `writeInlineCollection`)
+
+```yaml
+# <Request>.yml
+runtime:
+  variables:
+    - name: userId
+      value: "2"
+  scripts:
+    - type: before-request        # Script → Pre Request
+      code: bru.setVar("requestedAt", new Date().toISOString());
+    - type: after-response        # Script → Post Response
+      code: bru.setVar("userName", res.body.name);
+    - type: tests                 # Tests tab
+      code: |-
+        test("status is 200", function () { expect(res.getStatus()).to.equal(200); });
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+docs: |-                          # Docs tab (top level, Markdown)
+  # Get user
+
+# opencollection.yml
+request:
+  headers: [{ name: X-Client, value: bruno-docs }]
+  auth: { type: bearer, token: collection-token-abc }
+  variables: [{ name: apiVersion, value: v1 }]
+  scripts: [{ type: before-request, code: 'bru.setVar("collectionStartedAt", Date.now());' }]
+```
+
+`{{env}}` references inside **fixture files** are Bruno interpolation; inside **workflow action params** `{{name}}` is a
+Bruno Capture *parameter* template and an unknown name fails the step — so typed URLs in workflows are literal.

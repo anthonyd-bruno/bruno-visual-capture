@@ -1,0 +1,39 @@
+version: 1
+id: request-organize
+name: Organize with Folders and Clones
+description: Creates a folder in the collection, then clones an existing request under a new name.
+feature: authoring
+tags: [folder, clone, sidebar, authoring]
+supportedOutputs: [screenshots, video, gif]
+parameters:
+  folderName:
+    type: string
+    label: Folder name
+    default: Users
+  cloneName:
+    type: string
+    label: Name for the cloned request
+    default: Get user (admin)
+fixture:
+  source: bundled
+  path: authoring/blog-api
+defaults:
+  preset: demo-video
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: Blog API }
+  - startRecording: {}
+  - action: folder.create
+    params: { name: "{{folderName}}", collection: Blog API }
+  - pause: 2400   # lets the "Folder created" toast fade before the still
+  - capture:
+      id: folder-created
+      name: New folder in the sidebar
+  - action: request.clone
+    params: { name: Get user, newName: "{{cloneName}}" }
+  - pause: 2400   # lets the "Request cloned!" toast fade before the still
+  - capture:
+      id: request-cloned
+      name: Cloned request in the sidebar
+  - stopRecording: {}

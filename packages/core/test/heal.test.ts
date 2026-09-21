@@ -4,7 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRegistry, defineAction, type BrunoSession, type CaptureAction } from '@bruno-capture/automation';
-import { WorkflowDefinitionSchema, type HealRequest, type Healer, type RunEvent, type Step } from '@bruno-capture/shared';
+import { InlineCollectionSchema, WorkflowDefinitionSchema, type HealRequest, type Healer, type RunEvent, type Step } from '@bruno-capture/shared';
 import { GeneratedWorkflowStore, RunArtifactStore, WorkflowRegistry, WorkflowStepFailure, describeBundledFixtures, executeWorkflow, writeInlineCollection, type CaptureController } from '../src/index.js';
 
 vi.mock('@bruno-capture/automation', async (orig) => {
@@ -78,7 +78,7 @@ describe('inline fixtures, fixture catalog and the generated store', () => {
         { name: 'Secure', method: 'GET' as const, url: '{{baseUrl}}/s', headers: [{ name: 'Accept', value: 'application/json' }], params: [], auth: { type: 'bearer' as const, token: 'tok' } },
         { name: 'Login', method: 'POST' as const, url: '{{baseUrl}}/login', headers: [], params: [{ name: 'v', value: '2' }], body: { type: 'json' as const, data: '{"a":1}' }, auth: { type: 'apikey' as const, key: 'X-Key', value: 'k', placement: 'header' as const } },
       ] };
-    await writeInlineCollection(dir, c);
+    await writeInlineCollection(dir, InlineCollectionSchema.parse(c));
     expect((await readdir(dir)).sort()).toEqual(['Login.yml', 'Secure.yml', 'environments', 'opencollection.yml']);
     const secure = await readFile(path.join(dir, 'Secure.yml'), 'utf8');
     expect(secure).toContain('type: bearer'); expect(secure).toContain('token: tok'); expect(secure).toContain('url: "{{baseUrl}}/s"'); expect(secure).toContain('seq: 1');

@@ -1,0 +1,56 @@
+version: 1
+id: request-headers-and-params
+name: Add Headers and Query Parameters
+description: Adds a query parameter and a custom header to a request on their tabs, then sends it and shows the filtered response.
+feature: authoring
+tags: [request, headers, params, authoring]
+supportedOutputs: [screenshots, video, gif]
+parameters:
+  paramName:
+    type: string
+    label: Query parameter
+    default: userId
+  paramValue:
+    type: string
+    label: Query parameter value
+    default: "1"
+  headerName:
+    type: string
+    label: Header
+    default: X-Request-Id
+  headerValue:
+    type: string
+    label: Header value
+    default: docs-demo-001
+fixture:
+  source: bundled
+  path: authoring/blog-api
+defaults:
+  preset: demo-video
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: Blog API }
+  - action: request.open
+    params: { name: List posts }
+  - startRecording: {}
+  - action: request.addQueryParam
+    params: { name: "{{paramName}}", value: "{{paramValue}}" }
+  - pause: 500
+  - capture:
+      id: query-param-added
+      name: Query parameter added (the URL updates)
+  - action: request.addHeader
+    params: { name: "{{headerName}}", value: "{{headerValue}}" }
+  - pause: 500
+  - capture:
+      id: header-added
+      name: Custom header added
+  - action: request.send
+  - waitFor:
+      state: response.received
+  - pause: 700
+  - capture:
+      id: filtered-response
+      name: Response filtered by the query parameter
+  - stopRecording: {}

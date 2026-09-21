@@ -1,0 +1,11 @@
+opencollection: 1.0.0
+
+info:
+  name: Scripting Demo
+  description: Pre-request and post-response scripts against JSONPlaceholder.
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

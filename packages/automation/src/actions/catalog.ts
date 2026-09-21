@@ -50,6 +50,8 @@ export const STATE_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'modal.open': 'a modal dialog is open',
   'modal.closed': 'no modal dialog is open',
   'settings.open': 'a collection settings tab is open',
+  'settings.folderOpen': 'a folder settings tab is open',
+  'codegen.open': 'the Generate Code dialog is open',
 };
 
 export function describeRegions(): Array<{ id: string; description: string }> {

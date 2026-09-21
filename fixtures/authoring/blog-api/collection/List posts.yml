@@ -1,0 +1,23 @@
+info:
+  name: List posts
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "{{baseUrl}}/posts"
+  headers:
+    - name: Accept
+      value: application/json
+  auth: inherit
+
+docs: |-
+  # List posts
+
+  Returns every post. Filter with the `userId` query parameter.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

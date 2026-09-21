@@ -1,0 +1,49 @@
+info:
+  name: Get user
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "{{baseUrl}}/users/1"
+  headers:
+    - name: Accept
+      value: application/json
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("returns the requested user", function () {
+          expect(res.getStatus()).to.equal(200);
+          expect(res.getBody().id).to.equal(1);
+        });
+
+        test("user has a name and an email", function () {
+          const user = res.getBody();
+          expect(user.name).to.be.a("string");
+          expect(user.email).to.include("@");
+        });
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+    - expression: res.body.id
+      operator: eq
+      value: "1"
+    - expression: res.responseTime
+      operator: lt
+      value: "5000"
+
+docs: |-
+  # Get user
+
+  Asserts the status, the id and the response time on the **Assert** tab, and checks the body shape in
+  the **Tests** tab script.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

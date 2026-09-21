@@ -1,0 +1,54 @@
+version: 1
+id: collection-settings-tour
+name: Collection Settings
+description: Walks through Collection Settings — Overview, Headers, Vars, Auth and the pre-request Script — on a collection that has each of them configured.
+feature: collection-settings
+tags: [collection, settings, headers, vars, auth, script]
+supportedOutputs: [screenshots, video]
+fixture:
+  source: bundled
+  path: collection-settings/orders-api
+defaults:
+  preset: docs-screenshot
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: Orders API }
+  - startRecording: {}
+  - action: collection.openSettings
+    params: { collection: Orders API, tab: overview }
+  - pause: 600
+  - capture:
+      id: settings-overview
+      name: Collection settings overview
+  - action: ui.click
+    params: { testId: collection-settings-tab-headers }
+    label: Headers tab
+  - pause: 500
+  - capture:
+      id: settings-headers
+      name: Collection-level headers
+  - action: ui.click
+    params: { testId: collection-settings-tab-vars }
+    label: Vars tab
+  - pause: 500
+  - capture:
+      id: settings-vars
+      name: Collection variables
+  - action: ui.click
+    params: { testId: collection-settings-tab-auth }
+    label: Auth tab
+  - pause: 500
+  - capture:
+      id: settings-auth
+      name: Collection-level auth
+  - action: ui.click
+    params: { testId: collection-settings-tab-script }
+    label: Script tab
+  - action: request.selectScriptPhase
+    params: { phase: pre-request }
+  - pause: 500
+  - capture:
+      id: settings-script
+      name: Collection pre-request script
+  - stopRecording: {}

@@ -1,0 +1,23 @@
+info:
+  name: Get user
+  type: http
+  seq: 2
+
+http:
+  method: GET
+  url: "{{baseUrl}}/users/1"
+  headers:
+    - name: Accept
+      value: application/json
+  auth: inherit
+
+docs: |-
+  # Get user
+
+  Returns one user by id, including address and company.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

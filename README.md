@@ -64,8 +64,19 @@ refined from. The same box sits on a composed plan before it is generated.
 node packages/cli/bin/bru-capture.mjs refine run_XXXXXXXXXXXXXXXXXXXXXXXXXX "don't obscure the token entered" --run
 ```
 
-Built-in workflows (`workflows/`): `runner-collection-run`, `request-send-response`, `environment-switch`,
-`timeline-request`, `openapi-sync` — each produces screenshots; all but Timeline also produce MP4/GIF.
+Built-in workflows (`workflows/`, 19 across 14 feature areas — every one produces screenshots, all but
+`timeline-request` and `collection-settings-tour` also MP4/GIF):
+
+| Feature | Workflows |
+|---|---|
+| runner, request-execution, environments, timeline, openapi-sync | `runner-collection-run`, `request-send-response`, `environment-switch`, `timeline-request`, `openapi-sync` |
+| authoring | `request-create` (New Request dialog → send), `request-headers-and-params`, `request-organize` (folder + clone) |
+| auth | `request-auth-bearer`, `request-auth-basic`, `request-auth-apikey` (httpbin echoes the auth), `collection-auth-inherit` (collection-level token, saved, inherited) |
+| testing, scripting, variables | `request-tests-and-assertions` (Assert + Tests tabs → results), `request-scripts` (pre/post-response), `request-variables` (env + collection + request vars) |
+| collection-settings, code-generation, response, appearance | `collection-settings-tour`, `request-generate-code` (Shell/Python/…), `response-inspect` (body + headers), `theme-switch` |
+
+Fixtures live under `fixtures/<feature>/<name>` (README + `collection/`); requests may ship `runtime:` vars, scripts,
+tests and assertions in Bruno 4.1's own YAML (see `docs/bruno-automation-surface.md`, Phase 11).
 Full App Window framing needs the native helper: `pnpm helper:build -- --install`, then
 `bru-capture helper request` to grant Screen Recording.
 
