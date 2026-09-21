@@ -1,6 +1,7 @@
 import type { AIProviderId, Capabilities, OutputType } from '@bruno-capture/shared';
 import type { HealPromptRequest, ComposeRequest } from './compose/prompt.js';
 import type { RawComposedPlan, RawHeal } from './compose/schema.js';
+import type { RawRefine, RefineRequest } from './compose/refine.js';
 
 export type ProviderErrorKind = 'auth' | 'network' | 'timeout' | 'quota' | 'provider' | 'malformed' | 'not-configured';
 
@@ -56,6 +57,8 @@ export interface AIProvider {
   composeWorkflow(request: ComposeRequest, signal?: AbortSignal): Promise<RawComposedPlan>;
   /** Phase 9: replacement steps for a failed step, from a live UI observation. */
   healStep(request: HealPromptRequest, signal?: AbortSignal): Promise<RawHeal>;
+  /** Phase 10: adjust an existing workflow/capture from feedback without replanning. */
+  refineWorkflow(request: RefineRequest, signal?: AbortSignal): Promise<RawRefine>;
   testConnection(signal?: AbortSignal): Promise<ProviderStatus>;
 }
-export type { ComposeRequest, HealPromptRequest, RawComposedPlan, RawHeal };
+export type { ComposeRequest, HealPromptRequest, RawComposedPlan, RawHeal, RawRefine, RefineRequest };

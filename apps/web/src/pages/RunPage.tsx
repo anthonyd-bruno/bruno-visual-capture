@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Artifact, RunEvent, RunManifest, StepSummary } from '@bruno-capture/shared';
 import { api, regenerateAndGo, subscribeRun } from '../api';
+import { RefinePanel } from '../components/RefinePanel';
 
 interface StepState { step: StepSummary; status: 'active' | 'done' | 'failed' | 'healing' | 'healed'; message?: string; inserted?: boolean }
 
@@ -43,6 +44,8 @@ function RunDetails({ run }: { run: RunManifest }) {
     ['Parameters', Object.keys(run.parameters).length ? Object.entries(run.parameters).map(([k, v]) => `${k} = ${String(v)}`).join(', ') : 'defaults'],
     ['Source', `${run.workflow.source} · ${run.workflow.sourcePath}`],
     ['Regenerated from', run.regenerateOf ? `${run.regenerateOf.runId} (${run.regenerateOf.mode})` : undefined],
+    ['Refined from', run.request.refinedFrom],
+    ['Adjustments', run.request.feedback?.length ? run.request.feedback.map((f, i) => `${i + 1}. ${f}`).join('  ') : undefined],
     ['Self-healing', run.healing ? `${run.healing.healed} of ${run.healing.attempts} repair(s) succeeded${run.healing.learned ? ' · workflow file updated with the healed steps' : ''}` : undefined],
     ['Errors', run.errors.length ? run.errors.map((e) => e.message).join('; ') : undefined],
   ];
@@ -146,6 +149,7 @@ export function RunPage({ runId }: { runId: string }) {
           {logs.length > 0 && <details><summary className="muted">Debug log ({logs.length})</summary><pre>{logs.join('\n')}</pre></details>}
         </div>
       </div>
+      {terminal && run && <RefinePanel from={{ runId }} onApplied={(id) => { location.hash = `#/run/${id}`; }} />}
       {terminal && run && <div className="panel"><h2 style={{ marginTop: 0 }}>Details</h2><RunDetails run={run} /></div>}
     </main>
   );

@@ -194,3 +194,10 @@ settings: { encodeUrl: true, timeout: 0, followRedirects: true, maxRedirects: 5,
 `page.evaluate(fn)` under tsx/esbuild injects `__name(...)` helpers into function sources that use inner
 named functions; the page has no `__name` → `ReferenceError`. `observePage` therefore ships its script as a
 plain string. Keep evaluate callbacks to single expressions or strings.
+
+## S11 — secret masking (measured 2026-09-21)
+
+Bearer tokens, basic-auth passwords and API-key values are rendered as `*` CodeMirror widgets (the
+underlying text is intact). One `secret-reveal-toggle` `<button>` per masked field sits next to it and
+switches the field to plain text; clicking it again masks it. `request.setAuth { reveal: true }` and
+`request.revealSecret` use it — this is what "don't obscure the token" maps to.

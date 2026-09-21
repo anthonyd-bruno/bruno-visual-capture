@@ -305,3 +305,9 @@ Heal round-trips cost 4–8 s each (Anthropic, medium effort). Schema note: the 
 step union + nested inline collection) was rejected by Anthropic with "The compiled grammar is too large"; the
 flat step object + inline-collection-as-JSON shape (3.5 KB JSON schema) compiles. OpenAI (`gpt-6-astra`) could not
 be exercised: the stored key is rate-limited/quota-exceeded (`429`).
+
+## Phase 10 — refine from feedback (measured 2026-09-21, Anthropic claude-opus-5)
+
+| Start | Feedback | Result |
+|---|---|---|
+| bearer-token GIF run (generated workflow, 10 steps) | "don't obscure the token entered" | one-param change `request.setAuth … reveal: true`, confidence 0.95, everything else copied verbatim; generated file updated in place; regenerated GIF (2.9 s, 1000×626) + 2 PNGs showing the plain token. Refine call ≈ 12 s, whole loop 19 s |

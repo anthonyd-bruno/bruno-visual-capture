@@ -58,6 +58,10 @@ export const CreateRunRequestSchema = z.strictObject({
   request: z.strictObject({
     prompt: z.string().optional(),
     plan: CapturePlanSchema.optional(),
+    /** Phase 10: natural-language adjustments applied to this workflow, oldest first. */
+    feedback: z.array(z.string()).optional(),
+    /** Phase 10: the run this one was refined from. */
+    refinedFrom: RunIdSchema.optional(),
     ai: AIAttributionSchema.optional(),
   }).optional(),
   regenerateOf: z.strictObject({ runId: RunIdSchema, mode: z.enum(['exact', 'latest']) }).optional(),

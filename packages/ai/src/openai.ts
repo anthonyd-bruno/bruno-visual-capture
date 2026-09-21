@@ -5,6 +5,7 @@ import { RawPlanSchema } from './schema.js';
 import { SYSTEM_PROMPT, buildUserMessage } from './prompt.js';
 import { COMPOSE_SYSTEM_PROMPT, HEAL_SYSTEM_PROMPT, buildComposeMessage, buildHealMessage, type ComposeRequest, type HealPromptRequest } from './compose/prompt.js';
 import { RawComposedPlanSchema, RawHealSchema, type RawComposedPlan, type RawHeal } from './compose/schema.js';
+import { REFINE_SYSTEM_PROMPT, RawRefineSchema, buildRefineMessage, type RawRefine, type RefineRequest } from './compose/refine.js';
 import { ProviderError, type AIProvider, type CapturePlanningRequest, type ProviderStatus, type RawPlan } from './types.js';
 
 function classify(e: unknown): ProviderError {
@@ -55,6 +56,9 @@ export class OpenAIProvider implements AIProvider {
   }
   healStep(request: HealPromptRequest, signal?: AbortSignal): Promise<RawHeal> {
     return this.structured(RawHealSchema, 'heal', HEAL_SYSTEM_PROMPT, buildHealMessage(request), signal);
+  }
+  refineWorkflow(request: RefineRequest, signal?: AbortSignal): Promise<RawRefine> {
+    return this.structured(RawRefineSchema, 'refine', REFINE_SYSTEM_PROMPT, buildRefineMessage(request), signal);
   }
 
   async testConnection(signal?: AbortSignal): Promise<ProviderStatus> {

@@ -134,7 +134,7 @@ export class RunEngine {
     const overrides: CreateRunRequest['overrides'] = { theme: m.capture.theme, width: m.capture.width, height: m.capture.height, cursor: m.capture.cursor, framing: m.capture.framing, region: m.capture.region, locator: m.capture.locator, fps: m.capture.fps };
     const base: Omit<CreateRunRequest, 'parameters'> = {
       workflowId: m.workflow.id, output: m.capture.output, preset: m.capture.preset, overrides,
-      request: m.request.prompt || m.request.plan ? { prompt: m.request.prompt, plan: m.request.plan, ai: m.ai } : undefined,
+      request: m.request.prompt || m.request.plan ? { prompt: m.request.prompt, plan: m.request.plan, feedback: m.request.feedback, refinedFrom: m.request.refinedFrom, ai: m.ai } : undefined,
       regenerateOf: { runId, mode }, cancelActive: opts.cancelActive ?? false, allowRelaunch: opts.allowRelaunch ?? false,
     };
     if (mode === 'exact') {
@@ -163,9 +163,11 @@ export class RunEngine {
     }
     const params = resolveParameters(def.parameters, req.parameters);
     if (!params.ok) throw new RunValidationError('Invalid parameters', params.errors.map((e) => ({ path: `parameters.${e.parameter}`, message: e.message })));
-    const presetId = req.preset ?? def.defaults.preset ?? DEFAULT_PRESET_FOR_OUTPUT[req.output];
+    const defaultPreset = def.defaults.preset && this.presets.find((p) => p.id === def.defaults.preset)?.outputs.includes(req.output) ? def.defaults.preset : undefined;
+    const presetId = req.preset ?? defaultPreset ?? DEFAULT_PRESET_FOR_OUTPUT[req.output];
     const preset = this.presets.find((p) => p.id === presetId);
     if (!preset) throw new RunValidationError(`Unknown preset "${presetId}"`);
+    if (!preset.outputs.includes(req.output)) throw new RunValidationError(`Preset "${preset.id}" is for ${preset.outputs.join(', ')}, not "${req.output}"`);
     const o = req.overrides;
     // A GIF preset without a height (Docs GIF) records the app at a comfortable size and downscales
     // the result to the preset width; the window is never squeezed to the GIF width.
@@ -192,7 +194,7 @@ export class RunEngine {
     const settings = this.deps.settings.get();
     const manifest: RunManifest = {
       schemaVersion: MANIFEST_SCHEMA_VERSION, runId, status: 'created', createdAt: new Date().toISOString(),
-      request: { prompt: req.request?.prompt, plan: req.request?.plan },
+      request: { prompt: req.request?.prompt, plan: req.request?.plan, feedback: req.request?.feedback, refinedFrom: req.request?.refinedFrom },
       workflow: { id: def.id, name: def.name, feature: def.feature, source: lw.source, sourcePath: lw.sourcePath, snapshot: 'workflow.yaml' },
       parameters: params.values, capture: captureConfig,
       bruno: { executablePath: '', version: undefined, mode: 'electron', profileMode: settings.capture.profileMode },

@@ -9,6 +9,7 @@ export * from './compose/catalog.js';
 export * from './compose/prompt.js';
 export * from './compose/validate.js';
 export * from './compose/heal.js';
+export * from './compose/refine.js';
 export { AnthropicProvider } from './anthropic.js';
 export { OpenAIProvider } from './openai.js';
 

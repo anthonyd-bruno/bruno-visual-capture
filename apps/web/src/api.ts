@@ -1,4 +1,4 @@
-import type { AIAttribution, AIProviderId, Capabilities, CapturePlan, CapturePreset, ConfidenceBand, CreateRunRequestInput, OutputType, RunEvent, RunManifest, Settings, SettingsPatch, SystemStatus, WorkflowDefinitionInput, WorkflowSummary } from '@bruno-capture/shared';
+import type { AIAttribution, AIProviderId, Capabilities, CaptureOverrides, CapturePlan, CapturePreset, ConfidenceBand, CreateRunRequestInput, OutputType, RunEvent, RunManifest, Settings, SettingsPatch, SystemStatus, WorkflowDefinitionInput, WorkflowSummary } from '@bruno-capture/shared';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string, public readonly details?: unknown) { super(message); }
@@ -28,6 +28,18 @@ export type ComposePlanResponse = {
   stepCount: number; debt: number; primitives: number; attribution: AIAttribution; suggestions: WorkflowSummary[];
 };
 export type PlanResponse = ReusePlanResponse | ComposePlanResponse | PlanFailureResponse;
+/** Phase 10: an adjusted workflow + settings, not yet saved. */
+export type DiffLine = { kind: 'same' | 'added' | 'removed'; line: string };
+export type RefineResponse =
+  | {
+      ok: true; kind: 'refine'; source: { workflowId: string; workflowSource: string; runId?: string };
+      definition: WorkflowDefinitionInput; yaml: string; output: 'screenshots' | 'video' | 'gif'; preset: CapturePreset; overrides: CaptureOverrides;
+      changes: string[]; settingsChanged: string[]; diff: DiffLine[]; rationale: string; confidence: number; band: ConfidenceBand; debt: number;
+      captureIds: string[]; stepCount: number; prompt?: string; feedback: string[]; attribution: AIAttribution;
+    }
+  | { ok: false; error: { code: string; message: string; hint?: string } };
+export type RefineFrom = { runId?: string; workflowId?: string; definition?: WorkflowDefinitionInput; output?: 'screenshots' | 'video' | 'gif'; preset?: string; overrides?: CaptureOverrides };
+export type ApplyRefineBody = { workflowId: string; definition: WorkflowDefinitionInput; output: 'screenshots' | 'video' | 'gif'; preset: string; overrides?: CaptureOverrides; prompt?: string; feedback: string[]; refinedFrom?: string; ai?: AIAttribution; cancelActive?: boolean; allowRelaunch?: boolean };
 export type RegenerateReview = { kind: 'review'; reason: string; issues: Issue[]; prefill: { workflowId: string; output: OutputType; preset: string; parameters: Record<string, string | number | boolean>; overrides: Record<string, unknown> } };
 export type RegenerateResponse = { run: RunManifest; review?: undefined } | { review: RegenerateReview; run?: undefined };
 
@@ -58,6 +70,9 @@ export const api = {
   removeImport: (id: string) => call<{ removed: string }>(`/api/workflows/import/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   addDirectory: (path: string) => call<{ directories: string[] }>('/api/workflows/directories', { method: 'POST', body: JSON.stringify({ path }) }),
   removeDirectory: (path: string) => call<{ directories: string[] }>('/api/workflows/directories', { method: 'DELETE', body: JSON.stringify({ path }) }),
+  /** Phase 10 */
+  refine: (feedback: string, from: RefineFrom) => call<RefineResponse>('/api/refine', { method: 'POST', body: JSON.stringify({ feedback, ...from }) }),
+  applyRefine: (body: ApplyRefineBody) => call<{ run: RunManifest; workflowId: string; savedAs: 'updated' | 'created' }>('/api/refine/apply', { method: 'POST', body: JSON.stringify(body) }),
   /** Phase 9 */
   validateWorkflow: (yaml: string) => call<{ valid: boolean; issues: Issue[]; captureIds?: string[]; stepCount?: number; yaml?: string }>('/api/workflows/validate', { method: 'POST', body: JSON.stringify({ yaml }) }),
   saveGenerated: (body: { yaml: string; prompt?: string; provider?: string; model?: string }) => call<{ id: string; file: string; valid: boolean; issues: Issue[] }>('/api/workflows/generated', { method: 'POST', body: JSON.stringify(body) }),

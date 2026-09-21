@@ -30,6 +30,8 @@ export const RunManifestSchema = z.strictObject({
   request: z.strictObject({
     prompt: z.string().optional(),
     plan: CapturePlanSchema.optional(),
+    feedback: z.array(z.string()).optional(),
+    refinedFrom: RunIdSchema.optional(),
   }).prefault({}),
   workflow: z.strictObject({
     id: SlugSchema,

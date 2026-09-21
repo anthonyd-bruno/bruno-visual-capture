@@ -44,3 +44,16 @@ describe('AI routes (no provider configured)', () => {
     expect(r.json().secrets.anthropic).toEqual({ keyPresent: false, source: null });
   });
 });
+
+describe('Phase 10 refine routes', () => {
+  it('validates the body and reports unknown sources', async () => {
+    expect((await app.inject({ method: 'POST', url: '/api/refine', headers: H, payload: { feedback: 'x' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/refine', headers: H, payload: { feedback: 'dark theme please' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/refine', headers: H, payload: { feedback: 'dark theme please', workflowId: 'does-not-exist' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/refine/apply', headers: H, payload: { workflowId: 'x' } })).statusCode).toBe(400);
+  });
+  it('degrades without a provider instead of failing', async () => {
+    const r = await app.inject({ method: 'POST', url: '/api/refine', headers: H, payload: { feedback: 'dark theme please', workflowId: 'runner-collection-run' } });
+    expect(r.statusCode).toBe(200); expect(r.json().ok).toBe(false); expect(r.json().error.code).toMatch(/provider_not_configured|no_provider/);
+  });
+});

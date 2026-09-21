@@ -132,13 +132,34 @@ export const requestSetBody = defineAction({
   },
 });
 
+/** Bruno masks secret auth fields (bearer token, password, API-key value) as ****; the eye button next to the field shows the plain value (measured S11). */
+async function revealSecrets(ctx: ActionContext, actionId: string): Promise<void> {
+  const toggle = ctx.page.locator('[data-testid="request-pane"] [data-testid="secret-reveal-toggle"]').filter({ visible: true }).first();
+  await expectVisible(actionId, 'The reveal-secret (eye) button', toggle, ctx.timeoutMs, 'Only masked auth fields (bearer, basic password, API key value) have one.');
+  const masked = () => ctx.page.locator('[data-testid="request-pane"] .CodeMirror').evaluateAll((els) => els.some((e) => /^\s*\*{3,}/.test((e as HTMLElement).innerText.replace(/\u200b/g, '').trim())));
+  if (!(await masked())) { ctx.log('secrets already visible'); return; }
+  await ctx.cursor.click(toggle);
+  try { await ctx.page.waitForFunction(() => ![...document.querySelectorAll('[data-testid="request-pane"] .CodeMirror')].some((e) => /^\s*\*{3,}/.test((e as HTMLElement).innerText.replace(/\u200b/g, '').trim())), undefined, { timeout: 5000 }); }
+  catch (e) { throw new ActionError(actionId, 'The secret stayed masked after clicking the reveal button', undefined, e); }
+  ctx.log('secrets revealed');
+}
+
+export const requestRevealSecret = defineAction({
+  id: 'request.revealSecret',
+  description: 'Show the masked auth secret (bearer token, password, API-key value) in plain text by clicking the eye button next to it — for screenshots/GIFs where the value must be readable.',
+  retryable: true, rung: 1,
+  params: z.object({}),
+  execute: (ctx) => revealSecrets(ctx, 'request.revealSecret'),
+});
+
 export const requestSetAuth = defineAction({
   id: 'request.setAuth',
-  description: 'Set the auth mode of the open request (bearer, basic, apikey, none, inherit) and fill its fields. Does not save.',
+  description: 'Set the auth mode of the open request (bearer, basic, apikey, none, inherit) and fill its fields. Bruno masks the secret as ****; reveal=true shows it in plain text afterwards. Does not save.',
   retryable: false, rung: 1,
   params: z.object({
     mode: z.enum(['bearer', 'basic', 'apikey', 'none', 'inherit', 'digest', 'oauth2', 'awsv4']),
     token: z.string().optional(), username: z.string().optional(), password: z.string().optional(), key: z.string().optional(), value: z.string().optional(),
+    reveal: z.boolean().default(false).describe('click the eye button so the secret is readable in the capture'),
   }),
   async execute(ctx, p) {
     await selectRequestTab(ctx, 'request.setAuth', 'auth');
@@ -154,7 +175,8 @@ export const requestSetAuth = defineAction({
     if (p.mode === 'bearer') await fill(0, p.token);
     else if (p.mode === 'basic') { await fill(0, p.username); await fill(1, p.password); }
     else if (p.mode === 'apikey') { await fill(0, p.key); await fill(1, p.value); }
-    ctx.log(`auth ${p.mode}`);
+    if (p.reveal && ['bearer', 'basic', 'apikey'].includes(p.mode)) await revealSecrets(ctx, 'request.setAuth');
+    ctx.log(`auth ${p.mode}${p.reveal ? ' (revealed)' : ''}`);
   },
 });
 
@@ -277,7 +299,7 @@ export const collectionOpenSettings = defineAction({
   },
 });
 
-export const AUTHORING_ACTIONS: Array<ReturnType<typeof defineAction<any>>> = [requestCreate, requestSetUrl, requestSetMethod, requestSetBody, requestSetAuth, requestAddHeader, requestAddQueryParam, requestSave, folderCreate, collectionMenuItem, requestMenuItem, collectionOpenSettings];
+export const AUTHORING_ACTIONS: Array<ReturnType<typeof defineAction<any>>> = [requestCreate, requestSetUrl, requestSetMethod, requestSetBody, requestSetAuth, requestRevealSecret, requestAddHeader, requestAddQueryParam, requestSave, folderCreate, collectionMenuItem, requestMenuItem, collectionOpenSettings];
 
 /** Measured S10c: 4.1.0 creates collections through an inline sidebar editor (no modal, no native dialog). */
 export const collectionCreate = defineAction({

@@ -32,6 +32,7 @@ function fake(id: 'openai' | 'anthropic', script: Array<RawPlan | Error | string
     },
     async composeWorkflow() { throw new ProviderError(id, 'provider', 'not used here'); },
     async healStep() { throw new ProviderError(id, 'provider', 'not used here'); },
+    async refineWorkflow() { throw new ProviderError(id, 'provider', 'not used here'); },
     async testConnection() { return { ok: true, provider: id, model: `${id}-model`, message: 'ok' }; },
   };
   return p;

@@ -1,6 +1,7 @@
 import type { AIAttribution, AIProviderId, Capabilities, CapturePreset, OutputType, WorkflowSummary } from '@bruno-capture/shared';
 import { PlanValidationError, suggestWorkflows, validatePlan, type PlanIssue, type ValidatedPlan } from './validate.js';
 import { validateComposedPlan, type ComposeCatalog, type ValidatedComposedPlan } from './compose/validate.js';
+import { validateRefinement, type RefineCurrent, type RefineRequest, type ValidatedRefinement } from './compose/refine.js';
 import { ProviderError, type AIProvider, type CapturePlanningRequest, type ComposeRequest } from './types.js';
 
 export interface PlanOutcome {
@@ -25,6 +26,8 @@ export interface ComposeOutcome {
   suggestions: WorkflowSummary[];
   attempts: AttemptRecord[];
 }
+/** Phase 10 */
+export interface RefineOutcome { ok: true; result: ValidatedRefinement; attribution: AIAttribution; suggestions: WorkflowSummary[]; attempts: AttemptRecord[] }
 export interface AttemptRecord { provider: AIProviderId; model: string; stage: 'initial' | 'repair'; result: 'ok' | 'invalid' | 'error'; detail?: string; latencyMs: number }
 
 export interface PlannerOptions {
@@ -64,6 +67,19 @@ export class CapturePlanner {
       (repair) => ({ prompt, capabilities: catalog.capabilities, preferredOutput, repair: repair as ComposeRequest['repair'] }),
       (p, req, s) => p.composeWorkflow(req, s),
       (raw) => validateComposedPlan(raw, { ...catalog, presets: catalog.presets ?? this.opts.presets }),
+      signal,
+    );
+    if (!r.ok) return r;
+    return { ok: true, result: r.validated, attribution: r.attribution, suggestions: r.suggestions, attempts: r.attempts };
+  }
+
+  /** Phase 10: apply natural-language feedback to an existing workflow + capture settings. */
+  async refine(feedback: string, catalog: ComposeCatalog, current: RefineCurrent, signal?: AbortSignal): Promise<RefineOutcome | PlanFailure> {
+    const r = await this.drive<ValidatedRefinement, RefineRequest>(
+      `${current.prompt ?? current.definition.name} ${feedback}`, catalog.capabilities,
+      (repair) => ({ feedback, current, capabilities: catalog.capabilities, repair }),
+      (p, req, s) => p.refineWorkflow(req, s),
+      (raw) => validateRefinement(raw, { ...catalog, presets: catalog.presets ?? this.opts.presets }, current),
       signal,
     );
     if (!r.ok) return r;

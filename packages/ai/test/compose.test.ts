@@ -163,6 +163,7 @@ describe('CapturePlanner.compose', () => {
       async planCapture(): Promise<never> { throw new Error('not used'); },
       async composeWorkflow(req: { repair?: unknown }) { p.calls++; if (req.repair) p.repairs++; const s = script[Math.min(i++, script.length - 1)]!; if (s instanceof Error) throw s; return s; },
       async healStep(): Promise<never> { throw new Error('not used'); },
+      async refineWorkflow(): Promise<never> { throw new Error('not used'); },
       async testConnection() { return { ok: true, provider: id, model: `${id}-m`, message: 'ok' }; } };
     return p as AIProvider & { calls: number; repairs: number };
   };

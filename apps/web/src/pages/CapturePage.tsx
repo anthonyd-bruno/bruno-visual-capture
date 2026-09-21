@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Capabilities, OutputType, WorkflowSummary } from '@bruno-capture/shared';
-import { api, ApiError, type ComposePlanResponse, type Issue, type PlanResponse, type ReusePlanResponse } from '../api';
+import { api, ApiError, type ComposePlanResponse, type Issue, type PlanResponse, type RefineResponse, type ReusePlanResponse } from '../api';
+import { RefinePanel } from '../components/RefinePanel';
 
 export function ParamForm({ wf, values, onChange }: { wf: WorkflowSummary; values: Record<string, string>; onChange: (v: Record<string, string>) => void }) {
   const entries = Object.entries(wf.parameters);
@@ -36,7 +37,7 @@ const stepLine = (s: Record<string, unknown>): string => {
 };
 
 /** Phase 9: the composed-plan card — steps, fixture, confidence, an editable YAML view, Generate / Save. */
-function ComposedPlanCard({ r, prompt, busy, onError, onBusy }: { r: ComposePlanResponse; prompt: string; busy: boolean; onError: (m: string | undefined) => void; onBusy: (b: boolean) => void }) {
+function ComposedPlanCard({ r, prompt, busy, onError, onBusy, onRefined }: { r: ComposePlanResponse; prompt: string; busy: boolean; onError: (m: string | undefined) => void; onBusy: (b: boolean) => void; onRefined: (r: ComposePlanResponse) => void }) {
   const [yaml, setYaml] = useState(r.yaml);
   const [editing, setEditing] = useState(false);
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -99,6 +100,7 @@ function ComposedPlanCard({ r, prompt, busy, onError, onBusy }: { r: ComposePlan
         <span className="muted">Generate saves this as a reusable workflow, then runs it. Failed steps are repaired from the live UI and written back.</span>
       </div>
       {r.band === 'low' && r.suggestions.length > 0 && <p className="muted" style={{ marginTop: 8 }}>Registered workflows that may fit instead: {r.suggestions.map((w) => <a key={w.id} href={`#/capture?workflow=${w.id}`} style={{ marginRight: 8 }}>{w.name}</a>)}</p>}
+      <RefinePanel title="Adjust the plan before generating" applyLabel="Apply to plan" from={{ definition: r.definition, output: r.output, preset: r.preset.id }} onPreview={(x: Extract<RefineResponse, { ok: true }>) => onRefined({ ...r, definition: x.definition, yaml: x.yaml, output: x.output, preset: x.preset, captureIds: x.captureIds, stepCount: x.stepCount, confidence: x.confidence, band: x.band, rationale: `${r.rationale} Adjusted: ${x.changes.join('; ')}`, debt: x.debt, primitives: (x.definition.steps as Array<Record<string, unknown>>).filter((s) => typeof s['action'] === 'string' && (s['action'] as string).startsWith('ui.')).length })} />
     </div>
   );
 }
@@ -169,7 +171,7 @@ export function CapturePage({ initialWorkflow, prefill }: { initialWorkflow?: st
             {planRes.suggestions.length > 0 && <div className="row" style={{ marginTop: 8 }}><span className="muted">Closest registered workflows:</span>{planRes.suggestions.map((w) => <button key={w.id} onClick={() => { setWorkflowId(w.id); setParams({}); }}>{w.name}</button>)}</div>}
           </div>
         )}
-        {planRes && planRes.ok && planRes.kind === 'compose' && <ComposedPlanCard r={planRes} prompt={prompt} busy={busy} onError={setError} onBusy={setBusy} />}
+        {planRes && planRes.ok && planRes.kind === 'compose' && <ComposedPlanCard r={planRes} prompt={prompt} busy={busy} onError={setError} onBusy={setBusy} onRefined={setPlanRes} />}
         {planRes && planRes.ok && planRes.kind === 'reuse' && (
           <div className="panel" style={{ marginTop: 12, borderColor: planRes.band === 'ready' ? 'var(--ok)' : planRes.band === 'review' ? 'var(--warn, orange)' : 'var(--bad)' }}>
             <div className="row" style={{ justifyContent: 'space-between' }}>

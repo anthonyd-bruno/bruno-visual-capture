@@ -9,7 +9,7 @@ Bruno desktop app from deterministic YAML workflows. See
 
 - macOS, Bruno installed in `/Applications` (or choose a path in Settings)
 - Node ≥ 22 with `corepack enable pnpm`
-- FFmpeg for video/GIF output (`brew install ffmpeg`) — screenshots work without it
+- FFmpeg for video/GIF output (`brew install ffmpeg`) — screenshots work without it but needed for gifs and recordings
 
 ## Run it
 
@@ -49,6 +49,19 @@ workflow so the next run needs no repair. Settings › AI has switches for compo
 
 ```bash
 node packages/cli/bin/bru-capture.mjs compose "Show how to add a custom header to a request and send it" --output screenshots --run
+```
+
+### Adjusting a capture without replanning
+
+Every finished run has an **Adjust this capture** box. Say what should change — "don't obscure the token
+entered", "dark theme", "make it a GIF", "pause longer before the response screenshot" — and only that
+changes: the model returns the same steps with the edit applied, you see the step diff and any output-setting
+changes, and **Apply & Regenerate** saves the new version (in place for generated workflows, as a derived
+generated workflow for built-ins) and runs it. The run records the feedback history and the run it was
+refined from. The same box sits on a composed plan before it is generated.
+
+```bash
+node packages/cli/bin/bru-capture.mjs refine run_XXXXXXXXXXXXXXXXXXXXXXXXXX "don't obscure the token entered" --run
 ```
 
 Built-in workflows (`workflows/`): `runner-collection-run`, `request-send-response`, `environment-switch`,

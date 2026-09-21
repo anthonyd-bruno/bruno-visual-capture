@@ -18,6 +18,9 @@ Usage:
   bru-capture compose "<prompt>" [--output <auto|screenshots|video|gif>] [--save] [--run]
                                    ask the AI planner to reuse or compose a workflow for the prompt;
                                    --save writes it to the generated workflows directory, --run also runs it
+  bru-capture refine <runId> "<feedback>" [--run]
+                                   adjust that run's workflow/settings from feedback (e.g. "don't obscure the
+                                   token entered"); prints the step diff; --run saves it and regenerates
 
 Options:
   --port <n>      fixed port for the backend (default: free port)
@@ -192,6 +195,46 @@ async function compose(prompt: string | undefined, v: { output?: string; save?: 
   } finally { await ctx.shutdown().catch(() => undefined); }
 }
 
+async function refine(runId: string | undefined, feedback: string | undefined, v: { run?: boolean; json?: boolean; relaunch?: boolean }): Promise<number> {
+  if (!runId || !feedback) { console.error('usage: bru-capture refine <runId> "<feedback>" [--run]'); return 2; }
+  const ctx = await createContext({ log: (m) => { if (!v.json) console.log('  ·', m); } });
+  try {
+    const { CapturePlanner, buildProviders } = await import('@bruno-capture/ai');
+    const { BUILT_IN_PRESETS } = await import('@bruno-capture/shared');
+    const { resolveRefineCurrent, applyRefinement } = await import('@bruno-capture/server');
+    const resolved = await resolveRefineCurrent(ctx, { runId });
+    const settings = ctx.settings.get();
+    const { providers } = await buildProviders(settings);
+    const planner = new CapturePlanner({ preferred: settings.ai.preferredProvider, fallbackEnabled: settings.ai.fallbackEnabled, providers, presets: BUILT_IN_PRESETS, log: (m) => { if (!v.json) console.log('  ·', m); } });
+    const outcome = await planner.refine(feedback, await ctx.composeCatalog(), resolved.current);
+    if (!outcome.ok) { console.error(`✖ ${outcome.error.message}${outcome.error.hint ? `\n  ↳ ${outcome.error.hint}` : ''}`); return 1; }
+    const r = outcome.result;
+    if (v.json) console.log(JSON.stringify({ definition: r.input, output: r.output, preset: r.preset.id, overrides: r.overrides, changes: r.changes, settingsChanged: r.settingsChanged, diff: r.diff, confidence: r.confidence, attribution: outcome.attribution }, null, 2));
+    else {
+      console.log(`refined "${r.definition.name}" · confidence ${r.confidence.toFixed(2)} [${outcome.attribution.provider} · ${outcome.attribution.model}]`);
+      for (const c of r.changes) console.log(`  • ${c}`);
+      for (const c of r.settingsChanged) console.log(`  • ${c}`);
+      console.log(`  ${r.rationale}\n`);
+      for (const d of r.diff) console.log(`${d.kind === 'added' ? '+' : d.kind === 'removed' ? '-' : ' '} ${d.line}`);
+    }
+    if (!v.run) return 0;
+    const applied = await applyRefinement(ctx, { workflowId: resolved.source.workflowId, definition: r.input, output: r.output, preset: r.preset.id, overrides: r.overrides, prompt: resolved.current.prompt, feedback: [...(resolved.current.feedback ?? []), feedback], refinedFrom: runId, ai: outcome.attribution, allowRelaunch: Boolean(v.relaunch) });
+    if (!v.json) console.log(`\n${applied.savedAs} ${applied.workflowId} → run ${applied.run.runId}`);
+    const t0 = Date.now();
+    for await (const e of ctx.engine.events(applied.run.runId)!) {
+      if (v.json) { if (e.type !== 'preview.frame') console.log(JSON.stringify(e)); continue; }
+      const line = formatEvent(e, t0);
+      if (line) console.log(line);
+    }
+    const final = ctx.engine.get(applied.run.runId)!.manifest;
+    if (!v.json) console.log(`\n${final.status}  ${final.artifacts.length} artifact(s) in ${ctx.engine.get(applied.run.runId)!.artifacts.runDir}`);
+    return final.status === 'completed' ? 0 : final.status === 'completed_with_errors' ? 3 : 1;
+  } catch (e) {
+    if (e instanceof RunValidationError) { console.error(`✖ ${e.message}`); return 2; }
+    throw e;
+  } finally { await ctx.shutdown().catch(() => undefined); }
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -218,6 +261,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     case 'workflow': return sub === 'add' ? workflowAdd(third) : (console.error(USAGE), 2);
     case 'run': return run(sub, values);
     case 'compose': return compose(sub, values);
+    case 'refine': return refine(sub, third, values);
     case 'helper': {
       const h = await CaptureHelper.locate(appPaths().binDir);
       if (!h) { console.error('Native capture helper not installed. Build it with: pnpm helper:build -- --install'); return 2; }

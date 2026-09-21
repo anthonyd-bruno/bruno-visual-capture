@@ -486,6 +486,28 @@ The safety property is kept in a different place: the AI may only *compose from 
   generated bearer workflow (0.92) and a clean run; plus the two novel-prompt compositions recorded in
   `docs/spike-results.md`. OpenAI could not be exercised (the key is quota-limited).
 
+### Phase 10 — Refine from feedback (added 2026-09-21)
+
+Anthony: "I need a way to adjust the output rather than having to replan the whole capture again", e.g.
+"don't obscure the token entered" on the bearer-token GIF.
+
+- **Refine call** — input: the run's exact `workflow.yaml` snapshot (or a registered/unsaved definition),
+  its capture settings, the original prompt, earlier adjustments, the run outcome, and the new feedback;
+  output: the COMPLETE step list with only the requested change (untouched steps copied verbatim from the
+  flat JSON we hand the model) plus nullable output/preset/theme/cursor/width/height and fixture changes.
+  Validated with the compose machinery, then diffed against the current steps (LCS over compact lines).
+- **Apply** — `generated` workflows are updated in place (provenance note "Refined from run …"); built-in /
+  custom / imported ones are never edited: the refinement is saved as a new generated workflow derived from
+  them. The new run records `request.feedback[]` (history) and `request.refinedFrom`.
+- **Levers the model needs** — measured S11: secrets are masked as `****` with a `secret-reveal-toggle`
+  button; `request.setAuth { reveal: true }` / `request.revealSecret` expose it. The UI guide in the prompt
+  says so, which is why the token example is a one-parameter change.
+- **Surfaces** — Run page "Adjust this capture" (feedback → changes list + step diff → Apply & Regenerate);
+  Capture page "Adjust the plan before generating" on the composed card; `bru-capture refine <runId>
+  "<feedback>" [--run]`; `POST /api/refine`, `POST /api/refine/apply`.
+- Also fixed on the way: a workflow `defaults.preset` that does not support the requested output now falls
+  back to the output's default preset instead of silently producing e.g. a 1600×1000 GIF.
+
 ## 6. Cross-cutting
 
 **Security (§20).** Bind `127.0.0.1`; reject requests whose `Origin`/`Host` isn't the local UI;
@@ -581,6 +603,8 @@ Built and verified against Bruno 4.1.0 on this machine — see `docs/spike-resul
   values and the reasons). Both verified live: exact reproduced the first run byte-for-byte from its
   snapshot; latest completed against the current definition.
 
+- **Phase 10** (refine from feedback) implemented and verified live with the token example — §5 Phase 10,
+  `docs/spike-results.md`. 114 unit tests across 19 files.
 - **Phase 9** (dynamic composition, post-MVP) implemented and verified live — see §5 Phase 9 for what it
   is and `docs/spike-results.md` for the measured runs. 105 unit tests across 18 files.
 
