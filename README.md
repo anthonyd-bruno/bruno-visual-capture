@@ -64,19 +64,158 @@ refined from. The same box sits on a composed plan before it is generated.
 node packages/cli/bin/bru-capture.mjs refine run_XXXXXXXXXXXXXXXXXXXXXXXXXX "don't obscure the token entered" --run
 ```
 
-Built-in workflows (`workflows/`, 19 across 14 feature areas — every one produces screenshots, all but
-`timeline-request` and `collection-settings-tour` also MP4/GIF):
+Built-in workflows (`workflows/`, 30 across 17 feature areas — every one produces screenshots, most also MP4/GIF):
 
 | Feature | Workflows |
 |---|---|
-| runner, request-execution, environments, timeline, openapi-sync | `runner-collection-run`, `request-send-response`, `environment-switch`, `timeline-request`, `openapi-sync` |
-| authoring | `request-create` (New Request dialog → send), `request-headers-and-params`, `request-organize` (folder + clone) |
+| runner | `runner-collection-run`, `runner-folder-run` (one folder, optionally recursive) |
+| request-execution, timeline, response | `request-send-response`, `timeline-request`, `response-inspect` (body + headers), `response-example-create` (save a response as a named example) |
+| authoring | `collection-create-first-request` (empty workspace → collection → request → send), `request-create`, `request-headers-and-params`, `request-body-modes` (JSON / XML / form / multipart / text), `request-organize` (folder + clone), `request-rename-and-delete` |
 | auth | `request-auth-bearer`, `request-auth-basic`, `request-auth-apikey` (httpbin echoes the auth), `collection-auth-inherit` (collection-level token, saved, inherited) |
-| testing, scripting, variables | `request-tests-and-assertions` (Assert + Tests tabs → results), `request-scripts` (pre/post-response), `request-variables` (env + collection + request vars) |
-| collection-settings, code-generation, response, appearance | `collection-settings-tour`, `request-generate-code` (Shell/Python/…), `response-inspect` (body + headers), `theme-switch` |
+| environments | `environment-switch`, `environment-create` (new environment + variable + save + send) |
+| testing, scripting, variables | `request-tests-and-assertions`, `request-scripts`, `request-variables` |
+| collection-settings | `collection-settings-tour`, `folder-settings` |
+| import, openapi-sync | `collection-import-openapi` (empty workspace → import a spec), `openapi-sync` |
+| documentation, code-generation, navigation, appearance | `request-docs`, `request-generate-code`, `find-requests` (Global Search + sidebar filter), `theme-switch`, `preferences-tour` |
 
 Fixtures live under `fixtures/<feature>/<name>` (README + `collection/`); requests may ship `runtime:` vars, scripts,
-tests and assertions in Bruno 4.1's own YAML (see `docs/bruno-automation-surface.md`, Phase 11).
+tests and assertions in Bruno 4.1's own YAML (see `docs/bruno-automation-surface.md`, Phases 11–12).
+
+## Creating your own workflows
+
+A workflow is one YAML file: metadata, optional parameters and fixture, and a list of steps that Bruno Capture
+executes against a fresh Bruno session. Anything under `workflows/` ships as a built-in; your own files live
+wherever you like (see *Where to put it*). The fastest way to start is to copy the closest built-in.
+
+### Anatomy
+
+```yaml
+version: 1
+id: request-auth-bearer                 # slug, unique across all sources
+name: Add a Bearer Token                # what the UI and the planner show
+description: Switches the Auth tab to Bearer Token, enters the token, sends the request.
+feature: auth                           # groups workflows on the Workflows page (any slug)
+tags: [auth, bearer, token]
+supportedOutputs: [screenshots, video, gif]   # which outputs this workflow can produce
+parameters:                             # optional; users/AI fill these in, steps read them as {{name}}
+  token: { type: string, label: Bearer token, default: demo-bearer-token-123 }
+  revealSecret: { type: boolean, label: Show the token, default: true }
+fixture:                                # optional; the collection Bruno starts with (see Fixtures)
+  source: bundled
+  path: auth/httpbin
+defaults:
+  preset: docs-gif                      # docs-screenshot | docs-wide | demo-video | docs-gif (theme, size, cursor, fps)
+steps:
+  - action: workspace.open              # always first: asserts the seeded workspace is up
+  - action: collection.open
+    params: { name: Auth Demo }         # the fixture collection's name
+  - action: request.open
+    params: { name: Bearer auth }
+  - startRecording: {}                  # video/GIF span (omit for screenshot-only workflows)
+  - action: request.setAuth
+    params: { mode: bearer, token: "{{token}}", reveal: "{{revealSecret}}" }
+    label: Choose Bearer Token and enter the token      # shown in the run log and the step list
+  - pause: 600                          # ms; let the UI settle before a still
+  - capture: { id: auth-bearer-configured, name: Bearer token configured }   # one PNG per capture
+  - action: request.send
+  - waitFor: { state: response.received, timeoutMs: 30000 }                 # semantic state, not a sleep
+  - pause: 700
+  - capture: { id: auth-bearer-response, name: Response confirming the token }
+  - stopRecording: {}
+```
+
+**Step types**
+
+| Step | What it does |
+|---|---|
+| `action` | Runs a registered Bruno action with `params` (below). `label` names it; `continueOnError: true` tolerates failure. |
+| `capture` | Saves a PNG. `id` (slug, unique in the workflow) and `name`; optional `region` (e.g. `response.body`, `app.sidebar`) or `framing` to crop. |
+| `waitFor` | Blocks until a `state` (e.g. `response.received`, `runner.complete`, `modal.closed`) or a `text` / `visible` condition holds. Prefer this over `pause`. |
+| `pause` | Milliseconds to wait (max 60 s). Use ~2400 ms after anything that shows a toast ("Request cloned!", "Environment created!") before a still. |
+| `startRecording` / `stopRecording` | Bound the MP4/GIF. Everything between them is recorded; captures outside still produce stills. |
+| `selectorAction` | Raw CSS escape hatch (`click` / `fill` / `press` / `hover` / `selectOption`). Counted as selector debt — use `ui.*` actions instead when you can. |
+
+**Actions** are the vocabulary. List them with their parameter schemas via `GET /api/capabilities` (`actions`), or
+from the CLI:
+
+```bash
+curl -s http://127.0.0.1:4011/api/capabilities -H 'Origin: http://127.0.0.1:4011' | jq '.actions[] | {id, description, params}'
+```
+
+Domain actions know Bruno's UI (`request.open`, `request.setAuth`, `request.addHeader`, `collection.setAuth`,
+`environment.create`, `runner.runFolder`, `collection.importFile`, `request.generateCode`, …). When none fits, the
+`ui.*` primitives target elements by `testId` (preferred), `role` + `name`, `text`, `label`, `placeholder` or, as a last
+resort, `css`: `ui.click`, `ui.hover`, `ui.type {…, value}`, `ui.press {key}`, `ui.selectOption`, `ui.waitFor`,
+`ui.waitForText`, `ui.scrollIntoView`. The 4.1.0 test-id inventory is in `docs/bruno-testids-4.1.0.txt`; the measured
+behaviour of every surface (which fields are CodeMirror editors, what the menus are called, which toasts appear) is in
+`docs/bruno-automation-surface.md`.
+
+**Parameters** are declared under `parameters` (`string`, `number`, `boolean`, `select` with `options`, `file`,
+`directory`; each with `label`, `default`, `required`) and used as `{{name}}` inside action params. A whole-string
+`"{{flag}}"` keeps the parameter's type (so booleans reach boolean action params); embedded `"{{a}}/{{b}}"` is string
+interpolation. **Only workflow parameters are templated** — a Bruno environment variable such as `{{baseUrl}}` in an
+action param is an error, so type literal URLs in workflows and keep `{{env}}` references inside fixture files.
+
+### Fixtures
+
+Bruno starts with the fixture mounted in a fresh workspace (capture profile mode) or added to yours (user mode).
+Three kinds:
+
+- **bundled** — `fixture: { source: bundled, path: <feature>/<name> }` points at `fixtures/<feature>/<name>/`, which holds
+  a `README.md` (first paragraph = the planner's description) and a `collection/` in Bruno 4.1 YAML:
+  `opencollection.yml` (`info.name` is what `collection.open` needs), one `<Request>.yml` per request,
+  `environments/<Name>.yml`, folders as `<Folder>/folder.yml`. Requests may carry `runtime:` variables, scripts
+  (`before-request` / `after-response` / `tests`), `assertions` and a `docs:` block; collections may carry
+  `request: {headers, variables, auth, scripts}`. The whole directory is copied into a temp workspace per run, so
+  workflows can freely edit, rename, delete and save. A fixture with only a `spec/` folder and no collection starts an
+  **empty** workspace (see `import/petstore-spec`). Copy `authoring/blog-api` as a template. A collection with exactly
+  one environment gets it pre-selected automatically.
+- **parameter** — `fixture: { source: parameter, parameter: collectionDir, copy: true }` lets the user point a
+  `directory` parameter at a collection on disk.
+- **inline** — `fixture: { source: inline, collection: {…} }` describes the collection in the workflow itself
+  (what the AI composer uses); Bruno Capture writes the YAML for you.
+
+Prefer public demo APIs that always answer (`jsonplaceholder.typicode.com`, `httpbin.org` for auth echoes) so `request.send`
+steps succeed in CI and on other machines.
+
+### Where to put it
+
+- **Your own directory**: Workflows page → *Sources* → add a folder (or `POST /api/workflows/directories`). Every
+  `*.yaml` in it (recursively) is registered and watched; edits reload live and invalid files stay listed with their errors.
+- **A single file**: `bru-capture workflow add path/to/workflow.yaml` (kept in place).
+- **Let the AI draft it**: type the prompt on the Capture page, review the composed steps, *Save to Workflows* — it lands
+  in `~/Library/Application Support/Bruno Capture/workflows/generated/` as a normal YAML you can edit.
+- **Ship it as a built-in**: add it under `workflows/<feature>/` (+ its fixture) and run `pnpm test` — the built-ins test
+  checks every step's params against the real action schemas, every state/region name, and the fixture's collection name.
+
+### Validate and run
+
+```bash
+node packages/cli/bin/bru-capture.mjs workflows validate        # schema + fixture path check for every registered file
+node packages/cli/bin/bru-capture.mjs run <id> --output screenshots   # then video / gif; --param name=value overrides defaults
+```
+
+Run against a scratch home while iterating so nothing touches your real Bruno:
+
+```bash
+BRU_CAPTURE_HOME=/tmp/bru-capture-dev node packages/cli/bin/bru-capture.mjs run my-workflow --output screenshots
+```
+
+(with `{"schemaVersion":1,"capture":{"profileMode":"capture"}}` in `/tmp/bru-capture-dev/settings.json`).
+
+### Tips from the built-ins
+
+- **Toasts** fade after ~2 s; a still taken sooner shows them. `pause: 2400` after create/rename/clone/save/import.
+- **CodeMirror auto-closes brackets and quotes**, so JSON or JavaScript typed live gains duplicate closers. Put bodies,
+  scripts and tests in the fixture; type only flat values (URLs, header values, tokens).
+- **Bearer tokens and passwords are masked**; `request.setAuth { reveal: true }` (or `request.revealSecret`) shows them. API-key values are never masked.
+- **Tabs overflow** into a "…" menu when the pane is narrow; `request.selectTab` finds them there.
+- **Editors that are tabs, not modals**: Collection Settings, the environment editor and Preferences open as tabs. `modal.close`
+  will not dismiss them — `request.open` a request to bring its tab forward.
+- **Collection settings apply only after saving** (`collection.saveSettings`); creating an environment makes it active.
+- **A step that fails** with self-healing on is repaired from a live UI observation and the fix is written back to
+  generated workflows — but a built-in should not need it: fix the step, re-run.
+
 Full App Window framing needs the native helper: `pnpm helper:build -- --install`, then
 `bru-capture helper request` to grant Screen Recording.
 

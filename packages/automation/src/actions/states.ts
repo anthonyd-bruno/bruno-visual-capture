@@ -22,6 +22,8 @@ export const STATES: Readonly<Record<string, StateCheck>> = {
   'settings.open': { locator: '[data-testid="settings-tab-bar"]', visible: true },
   'settings.folderOpen': { locator: '[data-testid="folder-settings-tab-headers"]', visible: true },
   'codegen.open': { locator: '[data-testid="interpolate-vars-toggle"]', visible: true },
+  'search.globalOpen': { locator: '[data-testid="global-search-input"]', visible: true },
+  'preferences.open': { locator: '[data-testid="request-tab"]:has-text("Preferences")', visible: true },
   'mockServer.running': {
     describe: 'mock server status text says running',
     predicate: async (page) => /running/i.test((await page.locator('[data-testid="mock-server-status-text"]').first().innerText().catch(() => '')) ?? ''),

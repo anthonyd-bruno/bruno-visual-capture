@@ -62,9 +62,11 @@ describe('built-in workflows', () => {
       const dir = path.join(bundledFixturesDir(), def.fixture.path);
       expect((await stat(dir)).isDirectory(), dir).toBe(true);
       const col = await findCollection(dir);
-      expect(col, `${def.id}: ${dir} has no collection`).toBeDefined();
+      // The first collection.open must name the fixture's collection. Fixtures may ship no collection at all
+      // (e.g. import/petstore-spec: only a spec, the workspace starts empty) — then nothing is opened before it is created/imported.
       const opened = def.steps.find((s): s is Extract<Step, { action: string }> => 'action' in s && s.action === 'collection.open');
-      if (opened) expect((opened.params as { name: string }).name, `${def.id} opens a collection that is not in its fixture`).toBe(col!.name);
+      if (col) { if (opened && !def.steps.some((s) => 'action' in s && ['collection.importFile', 'collection.create'].includes(s.action))) expect((opened.params as { name: string }).name, `${def.id} opens a collection that is not in its fixture`).toBe(col.name); }
+      else expect(def.steps.some((s) => 'action' in s && ['collection.importFile', 'collection.create'].includes(s.action)), `${def.id}: fixture ${dir} has no collection and the workflow never imports or creates one`).toBe(true);
     }
   });
 });

@@ -1,0 +1,26 @@
+info:
+  name: XML body
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{baseUrl}}/posts"
+  headers:
+    - name: Content-Type
+      value: application/xml
+  body:
+    type: xml
+    data: |-
+      <post>
+        <title>Hello from Bruno</title>
+        <body>Sent as XML</body>
+        <userId>1</userId>
+      </post>
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

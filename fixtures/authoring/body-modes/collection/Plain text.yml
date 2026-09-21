@@ -1,0 +1,21 @@
+info:
+  name: Plain text
+  type: http
+  seq: 5
+
+http:
+  method: POST
+  url: "{{baseUrl}}/posts"
+  headers:
+    - name: Content-Type
+      value: text/plain
+  body:
+    type: text
+    data: Hello from Bruno, sent as plain text.
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

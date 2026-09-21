@@ -278,3 +278,52 @@ request:
 
 `{{env}}` references inside **fixture files** are Bruno interpolation; inside **workflow action params** `{{name}}` is a
 Bruno Capture *parameter* template and an unknown name fails the step — so typed URLs in workflows are literal.
+
+## Phase 12 audit — body types, environments, import, search, dialogs (S13a/S13b/S13c, measured 2026-09-21)
+
+- **Body types** (`request.setBody` → `request-body-mode-label-<json|xml|text|sparql|formurlencoded|multipartform|file|none>`):
+  form modes render `form-urlencoded-table` / `multipart-form-table` (cells `column-name` / `column-value`, multipart adds
+  `multipart-file-upload` + `column-contentType`). YAML: `body: {type: json|xml|text, data}`,
+  `body: {type: form-urlencoded, data: [{name, value}]}`, `body: {type: multipart-form, data: [{name, type: text, value}]}`.
+- **Environment editor** is a **tab**, not a modal (so `modal.close` does not dismiss it — re-open a request to bring
+  its tab forward). Ids: `save-env`, `save-all-env`, `reset-env`, `env-rename-action`, `env-copy-action`,
+  `env-delete-action`, `env-search-action`, `responsive-tab-<variables|secrets|external-secrets>`, `create-dotenv-file`,
+  rows `env-var-row-<name>` (the trailing empty row is `env-var-row-`) with `env-var-name-input` (placeholder "Name"),
+  CodeMirror value/description cells (`test-multiline-editor-<n>.value` / `.description`) and `datatype-selector-trigger`.
+  The toolbar buttons have titles only: **"Create environment"** (opens an inline input, placeholder "Environment
+  name..."; Enter writes `environments/<Name>.yml`, toasts "Environment created!" **and switches the active environment
+  to it**), "Import environment", "Export environment". Typing a name in the empty row appends a row and the row's id
+  becomes `env-var-row-<name>`; saved variables gain `description: ""`.
+- **Rename dialog**: one plain input (prefilled), `rename-item-button`, text "Rename Request". **Delete dialog**:
+  `delete-collection-item-modal`, `delete-collection-item-modal-submit-btn`, text "Are you sure you want to delete …?".
+- **Create Response Example** (`collection-item-menu-create-example`): `create-example-name-input` (prefilled "example"),
+  `create-example-description-input`, `modal-submit-btn` ("Create Example") → an example editor tab with
+  `response-example-name-input`, `response-example-description-input`, `response-example-method-selector`,
+  `response-status-input`, `example-body-mode-label`, `response-example-save-btn` / `-cancel-btn`. The request row gains a
+  `request-item-chevron`; expanding it lists `sidebar-response-example-item` rows. YAML: `examples: [{name, …, response:
+  {status: 200, statusText: OK, …}}]` appended to the request file.
+- **Import** (`collections-header-add-menu-import`): `import-collection-modal` with tabs `file-tab` / `github-tab` /
+  `github-search-tab` / `url-tab`, a "choose file(s)" button over a hidden `input[type=file]` (Playwright
+  `setInputFiles`, no native dialog) — "Supports Bruno, OpenCollection, Postman, Insomnia, OpenAPI 3.x / Swagger 2.0, WSDL,
+  and ZIP". Then `import-collection-location-modal`: Name (from the spec title, e.g. "Bruno Capture Pets"), Location
+  prefilled with the default collection location (`<profile>/collections` in the capture profile),
+  `import-collection-browse-link`, `grouping-dropdown` (folders by paths or tags), "Check for Spec Updates" toggle,
+  `import-collection-location-modal-submit-btn` → toast "Collection imported successfully" and a new `sidebar-collection-row`.
+- **Global Search**: status-bar button "Global Search" → modal with `global-search-input`; body text "<n> results found",
+  rows show name + URL + method; "↑ ↓ to navigate ↵ to select esc to close". **Sidebar filter**: button "Search requests"
+  → `sidebar-search-input`; only matching `sidebar-collection-item-row`s stay visible.
+- **Folder run** (`collection-item-menu-run` on a folder): "Collection Runner" dialog (`tag-input`, `runner-iterations-input`,
+  `runner-iterations-upgrade`, delay field) with buttons **Run** ("only the requests in this folder") and **Recursive Run**;
+  results list `runner-result-item`s; `runner-run-again-button` marks completion. Clicking a result item shows nothing
+  extra ("Click on the status code to view the response").
+- **Preferences** (status-bar button "Open Preferences") opens a **tab** (`request-tab` "Preferences") with sections
+  General, Themes, Display, Proxy, Client Certificates, License, Features, Secrets Manager, Git Providers, Keybindings, AI,
+  Cache, Support, Beta, About — text only, no ids. General shows the default collection location path.
+- **Cookies** (status-bar "Open Cookies"): modal "Cookies — No cookies found — Add Cookie" (`modal-close-button` only).
+- **Dev Tools** (`toggle-devtools-button`): bottom panel with Console / Network / Performance / Terminal tabs, no ids.
+- **Not in 4.1.0's collection menu**: no create-mock-server item (`collection-actions-*` = new-request, new-folder, new-app,
+  new-script, run, clone, sync-openapi, rename, share, generate-docs, collapse, show-in-folder, settings, terminal,
+  move-to-workspace, remove). Workspace menu: `workspace-menu-<default|create-workspace|open-workspace|import-workspace|manage-workspaces>`;
+  collections header: `collections-header-actions-menu-<sort|close-all|open-in-terminal>`.
+- **Folder settings YAML**: `folder.yml` → `request: {headers: [{name, value}], variables: [{name, value}], auth: inherit}`
+  (headers measured; variables mirror the collection shape).

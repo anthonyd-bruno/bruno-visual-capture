@@ -1,0 +1,50 @@
+version: 1
+id: collection-create-first-request
+name: Create a Collection and Its First Request
+description: Starts from an empty workspace, creates a collection from the sidebar "+" menu, adds a first request and sends it. The collection is created in Bruno's default collection location.
+feature: authoring
+tags: [collection, create, first-request, onboarding]
+supportedOutputs: [screenshots, video, gif]
+parameters:
+  collectionName:
+    type: string
+    label: Collection name
+    default: My First API
+  requestName:
+    type: string
+    label: Request name
+    default: List users
+  url:
+    type: string
+    label: Request URL
+    default: https://jsonplaceholder.typicode.com/users
+defaults:
+  preset: demo-video
+steps:
+  - action: workspace.open
+  - capture:
+      id: workspace-empty
+      name: Empty workspace
+  - startRecording: {}
+  - action: collection.create
+    params: { name: "{{collectionName}}" }
+  - pause: 2400   # lets the "Collection created!" toast fade
+  - capture:
+      id: collection-created
+      name: New collection in the sidebar
+  - action: request.create
+    params: { name: "{{requestName}}", method: GET, url: "{{url}}", collection: "{{collectionName}}" }
+  - waitFor:
+      state: request.open
+  - pause: 2400
+  - capture:
+      id: first-request
+      name: First request open in the editor
+  - action: request.send
+  - waitFor:
+      state: response.received
+  - pause: 700
+  - capture:
+      id: first-response
+      name: First response
+  - stopRecording: {}

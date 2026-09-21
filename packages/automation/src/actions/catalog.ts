@@ -52,6 +52,8 @@ export const STATE_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'settings.open': 'a collection settings tab is open',
   'settings.folderOpen': 'a folder settings tab is open',
   'codegen.open': 'the Generate Code dialog is open',
+  'search.globalOpen': 'the Global Search dialog is open',
+  'preferences.open': 'the Preferences tab is open',
 };
 
 export function describeRegions(): Array<{ id: string; description: string }> {

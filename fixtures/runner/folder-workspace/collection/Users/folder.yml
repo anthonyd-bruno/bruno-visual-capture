@@ -1,0 +1,14 @@
+info:
+  name: Users
+  type: folder
+  seq: 1
+request:
+  headers:
+    - name: X-Folder
+      value: users
+    - name: Accept
+      value: application/json
+  variables:
+    - name: pageSize
+      value: "5"
+  auth: inherit

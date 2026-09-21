@@ -350,3 +350,37 @@ httpbin answered the three auth requests with the expected 200s (bearer echo, ba
 - The Docs tab is hidden behind the pane's `…` overflow at 1600 px once a request has vars/scripts/asserts;
   `request.selectTab` resolves it through `menu-dropdown-docs` (verified in S12c).
 - `theme.set` (localStorage + reload) works mid-recording; the GIF shows light → dark → light.
+
+## Phase 12 — authoring guide + 11 more workflows (measured 2026-09-21, Bruno 4.1.0, capture profile)
+
+Spikes `s13a-surfaces.mjs`, `s13b-runner-mock-import.mjs`, `s13c-followups.mjs` inventoried the remaining surfaces
+(see `docs/bruno-automation-surface.md`, Phase 12). Live runs via `bru-capture run <id>` against a scratch home:
+
+| Workflow | Feature | Captures | Screenshots run | GIF / MP4 |
+|---|---|---|---|---|
+| `request-body-modes` | authoring | body-json, body-xml, body-form-urlencoded, body-multipart, body-json-response | 6.6 s | GIF 6.6 s run ✓ |
+| `request-docs` | documentation | docs-rendered, docs-editing | 4.4 s | — |
+| `request-rename-and-delete` | authoring | request-renamed, request-deleted | 10.7 s (two 2.4 s toast pauses) | — |
+| `response-example-create` | response | response-to-save, response-example-saved | 7.7 s | — |
+| `environment-create` | environments | environment-editor, environment-created, environment-variable-added, response-with-new-environment | 11.4 s | MP4 16.8 s run, 1920×1080 ✓ |
+| `collection-import-openapi` | import | workspace-empty, collection-imported, imported-collection-open | 6.7 s | GIF 7.2 s run ✓ |
+| `find-requests` | navigation | global-search-results, sidebar-filtered | 5.2 s | — |
+| `runner-folder-run` | runner | folder-run-results | 4.5 s | — |
+| `folder-settings` | collection-settings | folder-headers, folder-auth, folder-vars | 4.5 s | — |
+| `preferences-tour` | appearance | preferences-general, -themes, -display, -keybindings | 6.2 s | — |
+| `collection-create-first-request` | authoring (no fixture) | workspace-empty, collection-created, first-request, first-response | 11.0 s | — |
+
+= 30 built-in workflows, 17 feature areas, 74 screenshot states.
+
+First pass: 11/11 completed, but four only thanks to the self-healer (each ~5–7 s of Anthropic time), which pointed at
+real synchronisation bugs that were then fixed so built-ins never depend on it:
+
+- `request.rename` / `response.createExample` waited for sidebar rows with a `$`-anchored regex that never matched
+  Bruno's row text → rows are now matched on an optional method prefix + the name + a non-word boundary.
+- `environment-create` used `modal.close` after saving, but the environment editor is a **tab**; the request editor
+  never came forward and `request.send` found no open request → the workflow re-opens the request instead.
+- `request.create` required the new request's sidebar row, which is hidden while a just-created collection is collapsed
+  (`collection-create-first-request` spent 60 s in that wait) → the open editor tab now counts as confirmation.
+
+Second pass: 4/4 clean, 8–11 s each. Import lands the collection in the profile's default location
+(`<profile>/collections` in capture mode — in user-profile mode it would be the user's own default location).

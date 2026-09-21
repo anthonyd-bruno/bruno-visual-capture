@@ -1,0 +1,60 @@
+version: 1
+id: environment-create
+name: Create an Environment
+description: Creates a new collection environment in the environment editor, adds a variable, saves it, and sends a request with it selected.
+feature: environments
+tags: [environments, variables, create]
+supportedOutputs: [screenshots, video, gif]
+parameters:
+  environmentName:
+    type: string
+    label: Environment name
+    default: Staging
+  baseUrl:
+    type: string
+    label: baseUrl for the new environment
+    default: https://jsonplaceholder.typicode.com
+fixture:
+  source: bundled
+  path: request-execution/jsonplaceholder
+defaults:
+  preset: demo-video
+steps:
+  - action: workspace.open
+  - action: collection.open
+    params: { name: JSONPlaceholder }
+  - action: request.open
+    params: { name: Get user }
+  - startRecording: {}
+  - action: environment.openEditor
+  - pause: 500
+  - capture:
+      id: environment-editor
+      name: Environment editor
+  - action: environment.create
+    params: { name: "{{environmentName}}" }
+  - pause: 2400   # lets the "Environment created!" toast fade
+  - capture:
+      id: environment-created
+      name: New environment created
+  - action: environment.addVariable
+    params: { name: baseUrl, value: "{{baseUrl}}" }
+  - pause: 500
+  - capture:
+      id: environment-variable-added
+      name: Variable added to the new environment
+  - action: environment.save
+  - pause: 2400   # lets the "saved" toast fade; the editor is a tab, so re-open the request to bring it forward
+  - action: request.open
+    params: { name: Get user }
+  - action: environment.select
+    params: { name: "{{environmentName}}" }
+  - pause: 500
+  - action: request.send
+  - waitFor:
+      state: response.received
+  - pause: 700
+  - capture:
+      id: response-with-new-environment
+      name: Request sent with the new environment
+  - stopRecording: {}

@@ -68,11 +68,16 @@ export function validatePlan(raw: unknown, caps: Capabilities, presets: readonly
 }
 
 /** Cheap lexical fallback for PRD §16 (< 0.5): likely workflows for manual selection. */
+/** Words that describe the *output* or are filler, not the Bruno feature being asked for. */
+const SUGGEST_STOPWORDS = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'then', 'when', 'how', 'show', 'showing', 'shows', 'make', 'making', 'create', 'creating', 'capture', 'capturing', 'record', 'recording', 'gif', 'video', 'mp4', 'screenshot', 'screenshots', 'image', 'images', 'demo', 'docs', 'documentation', 'please', 'want', 'need', 'bruno']);
+
 export function suggestWorkflows(prompt: string, caps: Capabilities, limit = 3): WorkflowSummary[] {
-  const tokens = prompt.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2);
+  const tokens = prompt.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2 && !SUGGEST_STOPWORDS.has(t));
+  // Hits in the id / name / feature / tags say what the workflow *is*; description hits are weaker evidence.
   const score = (w: WorkflowSummary) => {
-    const hay = `${w.id} ${w.name} ${w.feature} ${w.tags.join(' ')} ${w.description}`.toLowerCase();
-    return tokens.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0);
+    const strong = `${w.id} ${w.name} ${w.feature} ${w.tags.join(' ')}`.toLowerCase();
+    const weak = w.description.toLowerCase();
+    return tokens.reduce((n, t) => n + (strong.includes(t) ? 2 : weak.includes(t) ? 1 : 0), 0);
   };
-  return caps.workflows.filter((w) => w.valid).map((w) => ({ w, s: score(w) })).sort((a, b) => b.s - a.s).slice(0, limit).map((x) => x.w);
+  return caps.workflows.filter((w) => w.valid).map((w) => ({ w, s: score(w) })).sort((a, b) => b.s - a.s || a.w.id.localeCompare(b.w.id)).slice(0, limit).map((x) => x.w);
 }

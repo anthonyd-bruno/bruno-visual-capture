@@ -1,0 +1,40 @@
+version: 1
+id: preferences-tour
+name: Preferences
+description: Opens Bruno's Preferences and shows the General, Themes, Display and Keybindings sections.
+feature: appearance
+tags: [preferences, settings, themes, keybindings]
+supportedOutputs: [screenshots, video]
+fixture:
+  source: bundled
+  path: request-execution/jsonplaceholder
+defaults:
+  preset: docs-screenshot
+steps:
+  - action: workspace.open
+  - startRecording: {}
+  - action: app.openPreferences
+    params: { section: General }
+  - pause: 600
+  - capture:
+      id: preferences-general
+      name: General preferences
+  - action: app.openPreferences
+    params: { section: Themes }
+  - pause: 500
+  - capture:
+      id: preferences-themes
+      name: Theme preferences
+  - action: app.openPreferences
+    params: { section: Display }
+  - pause: 500
+  - capture:
+      id: preferences-display
+      name: Display preferences
+  - action: app.openPreferences
+    params: { section: Keybindings }
+  - pause: 500
+  - capture:
+      id: preferences-keybindings
+      name: Keybindings
+  - stopRecording: {}

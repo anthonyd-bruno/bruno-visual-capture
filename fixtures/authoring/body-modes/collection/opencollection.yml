@@ -1,0 +1,11 @@
+opencollection: 1.0.0
+
+info:
+  name: Body Types
+  description: The same "create post" request written with every request body type Bruno supports.
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

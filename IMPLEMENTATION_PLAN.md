@@ -579,10 +579,42 @@ excludes CI as a *product* feature; this is just our own tests.
 - **Gotcha kept visible:** `{{name}}` in workflow action params is a *parameter* template; environment variables in
   typed URLs would fail the step, so `request-create` types a literal URL.
 
+### Phase 12 — Workflow authoring guide + 11 more built-ins (added 2026-09-21)
+
+**Goal:** cover the remaining everyday Bruno surfaces and document, in the README, how anyone adds a workflow.
+
+- **Measured first (S13a / S13b / S13c):** body-type YAML (`form-urlencoded`, `multipart-form`, xml, text) and tables;
+  the environment editor (a tab; "Create environment" inline input that also switches the active environment;
+  `env-var-row-<name>`); the Rename / Delete / Create Response Example dialogs and the example editor; the Import flow
+  (file input → location dialog → toast); Global Search and the sidebar filter; the folder-run "Collection Runner"
+  dialog; Preferences as a tab with named sections; folder `request.headers` YAML; that 4.1.0's collection menu has no
+  mock-server item and the runner shows no per-result detail. In `docs/bruno-automation-surface.md`, Phase 12.
+- **Actions:** `request.rename`, `request.delete`, `response.createExample`, `environment.create`,
+  `environment.addVariable`, `environment.save`, `collection.importFile`, `search.global`, `search.sidebar`,
+  `runner.runFolder`, `app.openPreferences`; states `search.globalOpen`, `preferences.open`. `request.create` no longer
+  requires the sidebar row (collapsed collections) — the open editor tab is the confirmation.
+- **Fixtures:** `authoring/body-modes` (one request per body type), `runner/folder-workspace` (folders with headers),
+  `import/petstore-spec` (spec only — the workspace starts empty).
+- **Workflows:** authoring `request-body-modes`, `request-rename-and-delete`, `collection-create-first-request` (no
+  fixture); response `response-example-create`; environments `environment-create`; import `collection-import-openapi`;
+  navigation `find-requests`; runner `runner-folder-run`; collection-settings `folder-settings`; documentation
+  `request-docs`; appearance `preferences-tour`.
+- **README — "Creating your own workflows":** anatomy with a commented example, the step types, how to list actions
+  and their schemas, parameters and the `{{param}}` vs `{{env}}` rule, the three fixture kinds and the Bruno YAML they
+  need, where files go (own directory / single file / AI draft / built-in), validate + run against a scratch home, and
+  the measured gotchas (toasts, CodeMirror auto-close, masking, tab overflow, tab-not-modal editors, save-to-apply).
+- **Suggestions:** `suggestWorkflows` ignores output/filler words (gif, video, create, show, …) and weights id / name /
+  feature / tag hits over description hits, so "runner running a collection" still ranks `runner-collection-run` first
+  among 30 workflows.
+
 ## 7b. Implementation status (2026-09-18)
 
 Built and verified against Bruno 4.1.0 on this machine — see `docs/spike-results.md` for numbers:
 
+- **Phase 12** complete (2026-09-21): 11 more built-in workflows (30 total over 17 feature areas, 74 screenshot
+  states) covering body types, rename/delete, response examples, environment creation, import, search, folder runs
+  and settings, docs, preferences and the from-empty-workspace onboarding flow; README gained the workflow-authoring
+  guide. All 11 ran clean live in the capture profile after four synchronisation fixes surfaced by the first pass.
 - **Phase 11** complete (2026-09-21): 14 new built-in workflows over 9 new feature areas (authoring, auth,
   testing, scripting, variables, collection-settings, code-generation, response, appearance) with 6 new bundled
   fixtures — 19 built-ins / 14 feature areas / 47 screenshot states in total; every new workflow ran clean live in the

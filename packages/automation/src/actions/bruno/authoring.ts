@@ -61,8 +61,10 @@ export const requestCreate = defineAction({
     await ctx.cursor.click(modal.locator('[data-testid="create-new-request-button"]'));
     try {
       await modal.waitFor({ state: 'hidden', timeout: ctx.timeoutMs });
-      await ctx.page.locator(SIDEBAR_ITEM, { hasText: p.name }).first().waitFor({ state: 'visible', timeout: ctx.timeoutMs });
+      // The new request opens in the editor; its sidebar row may be hidden when the collection is collapsed
+      // (e.g. right after collection.create), so the row is confirmation, not a requirement.
       await ctx.page.locator('[data-testid="request-pane"]').waitFor({ state: 'visible', timeout: ctx.timeoutMs });
+      await ctx.page.locator(`[data-testid="request-tab"]:has-text("${p.name.replace(/"/g, '\\"')}"), ${SIDEBAR_ITEM}:has-text("${p.name.replace(/"/g, '\\"')}")`).first().waitFor({ state: 'visible', timeout: ctx.timeoutMs });
     } catch (e) {
       const err = (await modal.innerText().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 160);
       throw new ActionError('request.create', `The request "${p.name}" was not created${err ? ` — the modal shows: "${err}"` : ''}`, 'Request names must be unique in the collection and valid as file names.', e);

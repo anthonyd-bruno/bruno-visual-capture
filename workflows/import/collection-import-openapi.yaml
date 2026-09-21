@@ -1,0 +1,31 @@
+version: 1
+id: collection-import-openapi
+name: Import a Collection from an OpenAPI Spec
+description: Starts from an empty workspace, imports an OpenAPI 3 document through the sidebar "+" menu, and opens the resulting collection.
+feature: import
+tags: [import, openapi, swagger, collection]
+supportedOutputs: [screenshots, video, gif]
+fixture:
+  source: bundled
+  path: import/petstore-spec
+defaults:
+  preset: demo-video
+steps:
+  - action: workspace.open
+  - capture:
+      id: workspace-empty
+      name: Empty workspace before the import
+  - startRecording: {}
+  - action: collection.importFile
+    params: { file: spec/openapi.yaml, collection: Bruno Capture Pets }
+  - pause: 2400   # lets the "Collection imported successfully" toast fade
+  - capture:
+      id: collection-imported
+      name: Collection imported from the spec
+  - action: collection.open
+    params: { name: Bruno Capture Pets }
+  - pause: 600
+  - capture:
+      id: imported-collection-open
+      name: Imported collection with its requests
+  - stopRecording: {}

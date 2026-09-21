@@ -1,0 +1,31 @@
+info:
+  name: JSON body
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{baseUrl}}/posts"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "title": "Hello from Bruno",
+        "body": "Sent as JSON",
+        "userId": 1
+      }
+  auth: inherit
+
+docs: |-
+  # JSON body
+
+  The most common body type. Bruno validates and pretty-prints it.
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

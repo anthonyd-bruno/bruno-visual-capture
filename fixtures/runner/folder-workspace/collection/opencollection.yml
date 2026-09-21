@@ -1,0 +1,11 @@
+opencollection: 1.0.0
+
+info:
+  name: Folders Demo
+  description: Requests organised into folders, for folder runs, folder settings and search.
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

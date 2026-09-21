@@ -11,6 +11,7 @@ import { workspaceOpen } from './bruno/workspace.js';
 import { AUTHORING_ACTIONS } from './bruno/authoring.js';
 import { AUTHORING_EXTRA_ACTIONS } from './bruno/authoring-extra.js';
 import { SETTINGS_ACTIONS } from './bruno/settings.js';
+import { MORE_ACTIONS } from './bruno/more.js';
 import { UI_ACTIONS } from './bruno/ui.js';
 import type { CaptureAction } from './types.js';
 
@@ -32,6 +33,7 @@ const all = [
   ...AUTHORING_ACTIONS,
   ...AUTHORING_EXTRA_ACTIONS,
   ...SETTINGS_ACTIONS,
+  ...MORE_ACTIONS,
   ...UI_ACTIONS,
 ] as unknown as Array<CaptureAction<unknown>>;
 
