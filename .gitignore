@@ -5,3 +5,7 @@ coverage/
 .DS_Store
 spikes/out/
 spikes/node_modules/
+
+# Internal product spec, kept local only
+Bruno Capture — MVP Product Requirements Document.md
+*Product Requirements Document*.md
