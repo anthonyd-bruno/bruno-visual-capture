@@ -46,11 +46,12 @@ export interface ExecutionResult {
   status: 'completed' | 'completed_with_errors';
   /** The step list that actually ran (original steps with heals spliced in). Equals the definition's when nothing was healed. */
   finalSteps: Step[];
-  heals: { attempts: number; healed: number };
+  /** `duringRecording`: heals that happened between startRecording and stopRecording — the recording shows the failure and the fix. */
+  heals: { attempts: number; healed: number; duringRecording: number };
 }
 
 export class WorkflowStepFailure extends Error {
-  constructor(public readonly error: RunError, public readonly steps: StepRecord[], public readonly errors: RunError[], public readonly heals: { attempts: number; healed: number } = { attempts: 0, healed: 0 }) {
+  constructor(public readonly error: RunError, public readonly steps: StepRecord[], public readonly errors: RunError[], public readonly heals: { attempts: number; healed: number; duringRecording: number } = { attempts: 0, healed: 0, duringRecording: 0 }) {
     super(error.message);
     this.name = 'WorkflowStepFailure';
   }
@@ -142,7 +143,7 @@ export async function executeWorkflow(deps: ExecutorDeps): Promise<ExecutionResu
   // Phase 9: the queue is mutable so the healer can splice replacement steps in at the failure point.
   const queue: Step[] = [...def.steps];
   const inserted = new Set<Step>();
-  const heals = { attempts: 0, healed: 0 };
+  const heals = { attempts: 0, healed: 0, duringRecording: 0 };
   const maxHeals = deps.healer ? deps.maxHeals ?? 4 : 0;
   const finalSteps: Step[] = [];
   const summaryOf = (s: Step, i: number): StepSummary => ({ index: i, kind: stepKind(s), label: stepLabel(s, i) });
@@ -282,6 +283,7 @@ export async function executeWorkflow(deps: ExecutorDeps): Promise<ExecutionResu
           deps.log(`self-healer gave up: ${outcome.reason}`, { stepIndex: index });
         } else {
           heals.healed++;
+          if (recordingOpen) heals.duringRecording++;
           for (const r of outcome.replacement) inserted.add(r);
           queue.splice(index, 1 + outcome.dropFollowing, ...outcome.replacement);
           total = queue.length;

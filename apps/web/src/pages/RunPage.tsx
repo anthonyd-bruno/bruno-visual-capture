@@ -49,7 +49,7 @@ function RunDetails({ run }: { run: RunManifest }) {
     ['Regenerated from', run.regenerateOf ? `${run.regenerateOf.runId} (${run.regenerateOf.mode})` : undefined],
     ['Refined from', run.request.refinedFrom],
     ['Adjustments', run.request.feedback?.length ? run.request.feedback.map((f, i) => `${i + 1}. ${f}`).join('  ') : undefined],
-    ['Self-healing', run.healing ? `${run.healing.healed} of ${run.healing.attempts} repair(s) succeeded${run.healing.learned ? ' · workflow file updated with the healed steps' : ''}` : undefined],
+    ['Self-healing', run.healing ? `${run.healing.healed} of ${run.healing.attempts} repair(s) succeeded${run.healing.retakes ? ` · ${run.healing.retakes} clean retake(s) so the fix is not in the recording` : ''}${run.healing.learned ? ' · workflow file updated with the healed steps' : ''}` : undefined],
     ['Errors', run.errors.length ? run.errors.map((e) => e.message).join('; ') : undefined],
   ];
   return <table><tbody>{rows.filter(([, v]) => v).map(([k, v]) => <tr key={k}><th style={{ width: 140 }}>{k}</th><td className={k === 'Source' || k === 'Bruno' ? 'mono' : ''}>{v}</td></tr>)}</tbody></table>;
@@ -69,6 +69,7 @@ export function RunPage({ runId, play }: { runId: string; play?: boolean }) {
   const [logs, setLogs] = useState<string[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [uiError, setUiError] = useState<string>();
+  const [retake, setRetake] = useState<{ take: number; reason: string }>();
   const live = useRef(true);
 
   useEffect(() => {
@@ -76,7 +77,9 @@ export function RunPage({ runId, play }: { runId: string; play?: boolean }) {
     const onEvent = (e: RunEvent) => {
       switch (e.type) {
         case 'run.status': setStatus(e.status); break;
-        case 'workflow.started': setTotal(e.stepCount); break;
+        case 'workflow.started': setTotal(e.stepCount); setSteps([]); break;
+        // A heal happened while recording: that take is thrown away and the healed steps run again from the start.
+        case 'recording.retake': setRetake({ take: e.take, reason: e.reason }); setSteps([]); setArtifacts([]); setTotal(0); break;
         case 'workflow.step.started': setSteps((s) => [...s.filter((x) => x.step.index !== e.step.index), { step: e.step, status: 'active' }]); break;
         case 'workflow.step.completed': setSteps((s) => s.map((x) => x.step.index === e.step.index ? { ...x, status: 'done' } : x)); break;
         case 'workflow.step.failed': setSteps((s) => s.map((x) => x.step.index === e.step.index ? { ...x, status: 'failed', message: e.error.message + (e.error.hint ? ` — ${e.error.hint}` : '') } : x)); break;
@@ -124,6 +127,7 @@ export function RunPage({ runId, play }: { runId: string; play?: boolean }) {
       <p className="muted mono">{runId}{run ? ` · ${run.capture.output} · ${run.capture.preset} · ${run.capture.width}×${run.capture.height ?? '?'} ${run.capture.theme} · Bruno ${run.bruno.version ?? '?'} (${run.bruno.profileMode} profile)` : ''}</p>
       {fatal && <div className="error"><strong>{fatal.message}</strong>{fatal.hint && <div>{fatal.hint}</div>}</div>}
       {uiError && <div className="error">{uiError}</div>}
+      {retake && <div className="panel notice"><strong>Take {retake.take}.</strong> {retake.reason[0]!.toUpperCase()}{retake.reason.slice(1)}, so the healed workflow {terminal ? 'was re-run' : 'is re-running'} from the start in a fresh Bruno session. The recording {terminal ? 'contains' : 'will contain'} neither the failure nor the fix.</div>}
       <div className="grid" style={{ gridTemplateColumns: '2fr 1fr' }}>
         <div className="panel">
           {!terminal ? (

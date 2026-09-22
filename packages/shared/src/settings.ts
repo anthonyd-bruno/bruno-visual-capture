@@ -31,6 +31,8 @@ export const SettingsSchema = z.strictObject({
     /** Phase 9: when a step fails, observe the live UI and ask the model for replacement steps. */
     selfHeal: z.boolean().default(true),
     maxHeals: z.number().int().min(0).max(10).default(4),
+    /** A heal while recording would put the failure and the fix in the video: re-run the healed steps from the start instead. */
+    retakeAfterHeal: z.boolean().default(true),
   }).prefault({}),
   workflows: z.strictObject({
     watch: z.boolean().default(true),
@@ -63,6 +65,7 @@ export const SettingsPatchSchema = z.strictObject({
     compose: z.boolean().optional(),
     selfHeal: z.boolean().optional(),
     maxHeals: z.number().int().min(0).max(10).optional(),
+    retakeAfterHeal: z.boolean().optional(),
   }).optional(),
   workflows: SettingsSchema.shape.workflows.unwrap().partial().optional(),
 });

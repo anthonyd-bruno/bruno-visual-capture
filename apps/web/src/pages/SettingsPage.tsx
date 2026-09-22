@@ -80,6 +80,7 @@ export function SettingsPage() {
           <label style={{ marginTop: 10 }}><input type="checkbox" style={{ width: 'auto', marginRight: 6 }} checked={s.ai.fallbackEnabled} onChange={(e) => save({ ai: { fallbackEnabled: e.target.checked } })} /> Fall back to the other provider on failure</label>
           <label style={{ marginTop: 10 }}><input type="checkbox" style={{ width: 'auto', marginRight: 6 }} checked={s.ai.compose} onChange={(e) => save({ ai: { compose: e.target.checked } })} /> Compose new workflows from prompts (off = only pick from registered workflows)</label>
           <label style={{ marginTop: 10 }}><input type="checkbox" style={{ width: 'auto', marginRight: 6 }} checked={s.ai.selfHeal} onChange={(e) => save({ ai: { selfHeal: e.target.checked } })} /> Self-heal failed steps from the live UI</label>
+          <label style={{ marginTop: 10 }}><input type="checkbox" style={{ width: 'auto', marginRight: 6 }} checked={s.ai.retakeAfterHeal} onChange={(e) => save({ ai: { retakeAfterHeal: e.target.checked } })} /> Re-record from the start after a repair during recording (the failure and the fix never appear in the video/GIF)</label>
           <label style={{ marginTop: 10 }}>Max repairs per run</label>
           <input type="number" min={0} max={10} defaultValue={s.ai.maxHeals} style={{ maxWidth: 120 }} onBlur={(e) => save({ ai: { maxHeals: Math.max(0, Math.min(10, Number(e.target.value) || 0)) } })} />
           {(['anthropic', 'openai'] as const).map((p) => {

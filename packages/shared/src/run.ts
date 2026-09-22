@@ -132,6 +132,8 @@ export const RunEventSchema = z.discriminatedUnion('type', [
   ev('artifact.created', { artifact: ArtifactSchema }),
   ev('recording.started', {}),
   ev('recording.stopped', { frames: z.number().int().nonnegative().optional() }),
+  /** A step was self-healed while recording, so that take is discarded and the healed workflow re-runs from the start as `take`. */
+  ev('recording.retake', { take: z.number().int().min(2), healsDuringRecording: z.number().int().positive(), reason: z.string() }),
   ev('processing.started', {}),
   ev('processing.completed', {}),
   ev('run.completed', { status: z.enum(['completed', 'completed_with_errors']) }),

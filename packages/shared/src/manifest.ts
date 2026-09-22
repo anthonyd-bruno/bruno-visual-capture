@@ -61,6 +61,6 @@ export const RunManifestSchema = z.strictObject({
   }),
   regenerateOf: z.strictObject({ runId: RunIdSchema, mode: z.enum(['exact', 'latest']) }).optional(),
   /** Phase 9 self-healing summary; `learned` = the generated workflow file was rewritten with the healed steps. */
-  healing: z.strictObject({ attempts: z.number().int().nonnegative(), healed: z.number().int().nonnegative(), learned: z.boolean() }).optional(),
+  healing: z.strictObject({ attempts: z.number().int().nonnegative(), healed: z.number().int().nonnegative(), learned: z.boolean(), /** clean retakes after a heal during recording */ retakes: z.number().int().nonnegative().optional() }).optional(),
 });
 export type RunManifest = z.infer<typeof RunManifestSchema>;

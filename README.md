@@ -58,6 +58,11 @@ observed (visible elements with their test ids, roles and text — never pixels 
 replacement steps, bounded by *Settings › AI › Max repairs*. Successful heals are written back into the generated
 workflow so the next run needs no repair. Settings › AI has switches for composition and self-healing.
 
+A repair that happens **while a video or GIF is recording** would leave the failure and the fix in the footage, so that
+take is discarded: the healed step list is re-run from the start in a fresh Bruno session (a *retake*, at most two per
+run) and only the clean take is encoded. The run page announces the retake, the manifest records it under `healing.retakes`,
+and *Settings › AI › Re-record from the start after a repair during recording* turns it off.
+
 ```bash
 node packages/cli/bin/bru-capture.mjs compose "Show how to add a custom header to a request and send it" --output screenshots --run
 ```

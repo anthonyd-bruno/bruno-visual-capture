@@ -18,7 +18,7 @@ import { definitionToYaml, type GeneratedWorkflowStore } from '../workflows/gene
 import { RunArtifactStore } from './artifacts.js';
 import { CaptureController } from './capture.js';
 import { RunEventBus } from './events.js';
-import { executeWorkflow, RunCancelled, WorkflowStepFailure } from './executor.js';
+import { executeWorkflow, RunCancelled, WorkflowStepFailure, type ExecutionResult } from './executor.js';
 import { stageFixture, type StagedFixture } from './fixtures.js';
 import { RendererRecordingController } from './recording.js';
 import { NativeRecordingController } from './native-recording.js';
@@ -232,6 +232,7 @@ export class RunEngine {
       rec.bus.emit({ type: 'run.log', runId, at: new Date().toISOString(), level: 'info', message });
     };
     let stopPreview: (() => void) | undefined;
+    let retakes = 0;
     const settings = this.deps.settings.get();
     const profileMode = settings.capture.profileMode;
 
@@ -239,86 +240,99 @@ export class RunEngine {
       this.setStatus(rec, 'validating');
       await rec.artifacts.writeSnapshot(lw.rawText);
 
-      this.setStatus(rec, 'preparing');
       signal.throwIfAborted();
       const targetDir = profileMode === 'capture'
         ? path.join(this.deps.paths.tmpDir, runId, 'workspace')
         : path.join(this.deps.paths.root, 'runtime-fixtures', def.fixture?.source === 'bundled' ? def.fixture.path : def.id);
       const healer = settings.ai.selfHeal && settings.ai.maxHeals > 0 ? await this.deps.healer?.({ definition: def, prompt: req.request?.prompt }).catch((e) => { log(`self-healer unavailable: ${firstLine(e)}`); return undefined; }) : undefined;
       if (healer) log(`self-healing enabled (up to ${settings.ai.maxHeals} repair${settings.ai.maxHeals === 1 ? '' : 's'})`);
-      rec.staged = await stageFixture(def, { fixturesDir: this.deps.fixturesDir, targetDir, parameters: params, refreshInPlace: profileMode === 'user' });
-      if (rec.staged) log(`fixture staged at ${rec.staged.workspacePath}${rec.staged.collectionName ? ` (collection "${rec.staged.collectionName}")` : ''}`);
-
       const bruno = await this.deps.resolveBruno();
       if (!bruno.candidate) {
         const e = new Error(bruno.error ?? 'Bruno was not found') as Error & { code: string; hint: string };
         e.code = 'bruno_not_found'; e.hint = 'Install Bruno or choose the application in Settings › Bruno.';
         throw e;
       }
-      rec.manifest.bruno = { executablePath: bruno.candidate.executablePath, version: bruno.candidate.version, mode: 'electron', profileMode };
+      const candidate = bruno.candidate;
+      rec.manifest.bruno = { executablePath: candidate.executablePath, version: candidate.version, mode: 'electron', profileMode };
 
-      const collection = rec.staged?.collectionPath ? { name: rec.staged.collectionName ?? path.basename(rec.staged.collectionPath), path: rec.staged.collectionPath } : undefined;
-      let selectedEnvironment = typeof params['environment'] === 'string' ? params['environment'] : undefined;
-      if (!selectedEnvironment && rec.staged?.collectionPath) {
-        // A collection with exactly one environment gets it pre-selected so {{vars}} resolve without a UI step.
-        const envs = (await readdir(path.join(rec.staged.collectionPath, 'environments')).catch(() => [] as string[])).filter((f) => /\.ya?ml$/i.test(f));
-        if (envs.length === 1) { selectedEnvironment = envs[0]!.replace(/\.ya?ml$/i, ''); log(`pre-selecting the collection's only environment "${selectedEnvironment}"`); }
-      }
-
-      if (profileMode === 'capture') {
-        // A fresh, seeded profile per run: the collection path changes per run, so the previous session cannot be reused.
-        if (this.sessionAlive()) { await this.session!.close().catch(() => undefined); }
-        this.session = undefined;
-        const profileDir = path.join(this.deps.paths.profileDir, 'default');
-        await rm(profileDir, { recursive: true, force: true });
-        await seedCaptureProfile({ dir: profileDir, collections: collection ? [collection] : [], sidebarWidth: 220, selectedEnvironment, brunoVersion: bruno.candidate.version ?? '0.0.0' });
-        log(`capture profile seeded at ${profileDir}`);
-      } else {
-        const running = await findRunningBruno();
-        const reusable = this.sessionAlive() && this.session!.executablePath === bruno.candidate.executablePath && this.session!.profileMode === 'user';
-        if (running.length && !reusable) {
-          if (!req.allowRelaunch) throw new BrunoAlreadyRunningError(running);
-          log('quitting the running Bruno to relaunch it under automation (user confirmed)');
-          if (!(await quitBrunoGracefully(15_000))) { const e = new Error('Bruno did not quit within 15 s') as Error & { code: string }; e.code = 'bruno_quit_failed'; throw e; }
-          this.session = undefined;
-        }
-        if (collection) {
-          const r = await addCollectionToUserWorkspace({ userDataDir: BRUNO_USER_DATA_DIR, collection, backupDir: path.join(this.deps.paths.backupsDir, runId) });
-          log(r.added ? `added "${collection.name}" to the user workspace (backup in backups/${runId})` : `"${collection.name}" already in the user workspace`);
-        }
-      }
-
-      this.setStatus(rec, 'connecting');
-      signal.throwIfAborted();
-      if (!this.sessionAlive()) {
-        this.session = await launchBruno({
-          executablePath: bruno.candidate.executablePath, profileMode,
-          captureProfileDir: profileMode === 'capture' ? path.join(this.deps.paths.profileDir, 'default') : undefined,
-          existingInstance: 'fail', signal, log: (m) => log(m),
-        });
-      } else log('reusing the running Bruno session');
-      const session = this.session!;
-      rec.manifest.bruno.version = session.version ?? rec.manifest.bruno.version;
-      await setContentSize(session, { width: capture.width, height: capture.height ?? Math.round((capture.width * 10) / 16) });
-      await setTheme(session, capture.theme);
-      const cursor = new CursorController(session.page, capture.cursor, { log });
-      await cursor.install({ width: capture.width, height: capture.height ?? Math.round((capture.width * 10) / 16) });
-      log(`Bruno ${session.version ?? '?'} ready: ${capture.width}×${capture.height ?? '?'} ${capture.theme}, cursor ${capture.cursor}`);
-
-      this.setStatus(rec, 'running');
-      const helper = await CaptureHelper.locate(this.deps.paths.binDir);
-      const captureCtl = new CaptureController(session, helper);
       const isRecording = capture.output === 'video' || capture.output === 'gif';
+      const viewport = { width: capture.width, height: capture.height ?? Math.round((capture.width * 10) / 16) };
       const framesRoot = path.join(this.deps.paths.tmpDir, runId, 'frames');
-      let recording: RendererRecordingController | NativeRecordingController | undefined;
+      const helper = await CaptureHelper.locate(this.deps.paths.binDir);
       if (isRecording && capture.framing === 'full-window') {
         if (!helper) { const e = new Error('Full App Window video needs the native capture helper, which is not installed') as Error & { code: string; hint: string }; e.code = 'helper_missing'; e.hint = 'Run `pnpm helper:build -- --install`, then allow Screen Recording when macOS asks.'; throw e; }
         if (!(await helper.preflight())) { const e = new Error('Screen Recording permission has not been granted') as Error & { code: string; hint: string }; e.code = 'permission_denied'; e.hint = 'Allow Screen Recording for the app running Bruno Capture in System Settings › Privacy & Security, then retry.'; throw e; }
-        await mkdir(framesRoot, { recursive: true });
-        recording = new NativeRecordingController(session, helper, { framesRoot, fps: 30, log });
-      } else if (isRecording) {
-        recording = new RendererRecordingController(session, { framesRoot, viewport: { width: capture.width, height: capture.height ?? Math.round((capture.width * 10) / 16) }, log });
       }
+
+      /**
+       * Stage the fixture and bring up Bruno for one take. Take 2+ is a clean retake after a self-heal during
+       * recording: capture mode gets a fresh workspace + profile + process, user mode a refreshed fixture.
+       */
+      const prepare = async (take: number): Promise<{ session: BrunoSession; cursor: CursorController }> => {
+        this.setStatus(rec, 'preparing');
+        signal.throwIfAborted();
+        if (take > 1 && profileMode === 'capture') await rm(targetDir, { recursive: true, force: true }).catch(() => undefined);
+        rec.staged = await stageFixture(def, { fixturesDir: this.deps.fixturesDir, targetDir, parameters: params, refreshInPlace: profileMode === 'user' });
+        if (rec.staged) log(`fixture staged at ${rec.staged.workspacePath}${rec.staged.collectionName ? ` (collection "${rec.staged.collectionName}")` : ''}`);
+
+        const collection = rec.staged?.collectionPath ? { name: rec.staged.collectionName ?? path.basename(rec.staged.collectionPath), path: rec.staged.collectionPath } : undefined;
+        let selectedEnvironment = typeof params['environment'] === 'string' ? params['environment'] : undefined;
+        if (!selectedEnvironment && rec.staged?.collectionPath) {
+          // A collection with exactly one environment gets it pre-selected so {{vars}} resolve without a UI step.
+          const envs = (await readdir(path.join(rec.staged.collectionPath, 'environments')).catch(() => [] as string[])).filter((f) => /\.ya?ml$/i.test(f));
+          if (envs.length === 1) { selectedEnvironment = envs[0]!.replace(/\.ya?ml$/i, ''); log(`pre-selecting the collection's only environment "${selectedEnvironment}"`); }
+        }
+
+        if (profileMode === 'capture') {
+          // A fresh, seeded profile per run (and per take): the collection path changes, so the previous session cannot be reused.
+          if (this.sessionAlive()) { await this.session!.close().catch(() => undefined); }
+          this.session = undefined;
+          const profileDir = path.join(this.deps.paths.profileDir, 'default');
+          await rm(profileDir, { recursive: true, force: true });
+          await seedCaptureProfile({ dir: profileDir, collections: collection ? [collection] : [], sidebarWidth: 220, selectedEnvironment, brunoVersion: candidate.version ?? '0.0.0' });
+          log(`capture profile seeded at ${profileDir}`);
+        } else {
+          const running = await findRunningBruno();
+          const reusable = this.sessionAlive() && this.session!.executablePath === candidate.executablePath && this.session!.profileMode === 'user';
+          if (running.length && !reusable) {
+            if (!req.allowRelaunch) throw new BrunoAlreadyRunningError(running);
+            log('quitting the running Bruno to relaunch it under automation (user confirmed)');
+            if (!(await quitBrunoGracefully(15_000))) { const e = new Error('Bruno did not quit within 15 s') as Error & { code: string }; e.code = 'bruno_quit_failed'; throw e; }
+            this.session = undefined;
+          }
+          if (collection) {
+            const r = await addCollectionToUserWorkspace({ userDataDir: BRUNO_USER_DATA_DIR, collection, backupDir: path.join(this.deps.paths.backupsDir, runId) });
+            log(r.added ? `added "${collection.name}" to the user workspace (backup in backups/${runId})` : `"${collection.name}" already in the user workspace`);
+          }
+        }
+
+        this.setStatus(rec, 'connecting');
+        signal.throwIfAborted();
+        if (!this.sessionAlive()) {
+          this.session = await launchBruno({
+            executablePath: candidate.executablePath, profileMode,
+            captureProfileDir: profileMode === 'capture' ? path.join(this.deps.paths.profileDir, 'default') : undefined,
+            existingInstance: 'fail', signal, log: (m) => log(m),
+          });
+        } else log('reusing the running Bruno session');
+        const session = this.session!;
+        rec.manifest.bruno.version = session.version ?? rec.manifest.bruno.version;
+        await setContentSize(session, viewport);
+        await setTheme(session, capture.theme);
+        const cursor = new CursorController(session.page, capture.cursor, { log });
+        await cursor.install(viewport);
+        log(`Bruno ${session.version ?? '?'} ready: ${capture.width}×${capture.height ?? '?'} ${capture.theme}, cursor ${capture.cursor}${take > 1 ? ` (take ${take})` : ''}`);
+        return { session, cursor };
+      };
+      const makeRecording = async (session: BrunoSession, take: number): Promise<RendererRecordingController | NativeRecordingController | undefined> => {
+        if (!isRecording) return undefined;
+        const dir = path.join(framesRoot, `take-${take}`);
+        await mkdir(dir, { recursive: true });
+        if (capture.framing === 'full-window') return new NativeRecordingController(session, helper!, { framesRoot: dir, fps: 30, log });
+        return new RendererRecordingController(session, { framesRoot: dir, viewport, log });
+      };
+
+      let { session, cursor } = await prepare(1);
       let previewSuspended = 0;
       if (settings.capture.previewEnabled) {
         let inFlight = false;
@@ -332,26 +346,54 @@ export class RunEngine {
         }, Math.round(1000 / settings.capture.previewFps));
         stopPreview = () => clearInterval(timer);
       }
-      const result = await executeWorkflow({
-        runId, definition: def, parameters: params, captureConfig: capture, session, actions: this.deps.actions, capture: captureCtl,
-        recording, autoRecord: isRecording, cursor,
-        artifacts: rec.artifacts, emit: (e) => rec.bus.emit(e), log, signal, workspacePath: rec.staged?.workspacePath,
-        suspendPreview: async (fn) => { previewSuspended++; try { return await fn(); } finally { previewSuspended--; } },
-        healer, maxHeals: settings.ai.maxHeals, goal: req.request?.prompt,
-      });
+
+      // A self-heal while recording leaves the failure and the fix in the footage. Rather than ship that, the healed
+      // step list is re-run from the start in a fresh session and only the clean take is encoded.
+      const MAX_RETAKES = 2;
+      const totals = { attempts: 0, healed: 0 };
+      let takeDef = def;
+      let recording = await makeRecording(session, 1);
+      let result: ExecutionResult;
+      for (let take = 1; ; take++) {
+        if (take > 1) { ({ session, cursor } = await prepare(take)); recording = await makeRecording(session, take); }
+        this.setStatus(rec, 'running');
+        const captureCtl = new CaptureController(session, helper);
+        try {
+          result = await executeWorkflow({
+            runId, definition: takeDef, parameters: params, captureConfig: capture, session, actions: this.deps.actions, capture: captureCtl,
+            recording, autoRecord: isRecording, cursor,
+            artifacts: rec.artifacts, emit: (e) => rec.bus.emit(e), log, signal, workspacePath: rec.staged?.workspacePath,
+            suspendPreview: async (fn) => { previewSuspended++; try { return await fn(); } finally { previewSuspended--; } },
+            healer, maxHeals: settings.ai.maxHeals, goal: req.request?.prompt,
+          });
+        } catch (e) {
+          if (e instanceof WorkflowStepFailure) { e.heals.attempts += totals.attempts; e.heals.healed += totals.healed; }
+          throw e;
+        }
+        totals.attempts += result.heals.attempts; totals.healed += result.heals.healed;
+        if (!isRecording || result.heals.duringRecording === 0 || !settings.ai.retakeAfterHeal) break;
+        if (retakes >= MAX_RETAKES) { log(`a step was repaired while recording again, but the retake limit (${MAX_RETAKES}) is reached — keeping this take`); break; }
+        retakes++;
+        takeDef = { ...takeDef, steps: result.finalSteps };
+        const reason = `${result.heals.duringRecording} step${result.heals.duringRecording === 1 ? ' was' : 's were'} repaired while recording`;
+        log(`${reason}: the fix would be in the video, so the healed workflow re-runs from the start as take ${take + 1}`);
+        rec.bus.emit({ type: 'recording.retake', runId, at: new Date().toISOString(), take: take + 1, healsDuringRecording: result.heals.duringRecording, reason });
+        const dropped = await rec.artifacts.discard('screenshot');
+        if (dropped) log(`discarded ${dropped} screenshot(s) from take ${take}`);
+      }
 
       // Phase 9: a healed run learned a better step list — record it (snapshot + the generated file it came from).
-      if (result.heals.attempts > 0) {
+      if (totals.attempts > 0) {
         let learned = false;
-        if (result.heals.healed > 0) {
+        if (totals.healed > 0) {
           const learnedDef: WorkflowDefinition = { ...def, steps: result.finalSteps };
-          await rec.artifacts.writeSnapshot(definitionToYaml(learnedDef, `Snapshot of run ${runId} after ${result.heals.healed} self-heal(s); the steps below are the ones that actually ran.`)).catch((e) => log(`snapshot rewrite failed: ${firstLine(e)}`));
+          await rec.artifacts.writeSnapshot(definitionToYaml(learnedDef, `Snapshot of run ${runId} after ${totals.healed} self-heal(s)${retakes ? ` and ${retakes} clean retake(s)` : ''}; the steps below are the ones that actually ran.`)).catch((e) => log(`snapshot rewrite failed: ${firstLine(e)}`));
           if (lw.source === 'generated' && this.deps.generated && !req.regenerateOf) {
-            try { await this.deps.generated.update(lw.file, learnedDef, `Updated by run ${runId}: ${result.heals.healed} step(s) repaired by the self-healer.`); learned = true; log(`learned: rewrote ${path.basename(lw.file)} with the healed steps`); }
+            try { await this.deps.generated.update(lw.file, learnedDef, `Updated by run ${runId}: ${totals.healed} step(s) repaired by the self-healer.`); learned = true; log(`learned: rewrote ${path.basename(lw.file)} with the healed steps`); }
             catch (e) { log(`could not write learned steps back: ${firstLine(e)}`); }
           }
         }
-        rec.manifest.healing = { attempts: result.heals.attempts, healed: result.heals.healed, learned };
+        rec.manifest.healing = { attempts: totals.attempts, healed: totals.healed, learned, ...(retakes ? { retakes } : {}) };
       }
 
       this.setStatus(rec, 'processing');
@@ -398,7 +440,7 @@ export class RunEngine {
         const c = e instanceof RunCancelled ? e : undefined;
         await this.finalize(rec, 'cancelled', c?.steps ?? [], c?.errors ?? [], undefined, stopPreview);
       } else if (e instanceof WorkflowStepFailure) {
-        if (e.heals.attempts > 0) rec.manifest.healing = { attempts: e.heals.attempts, healed: e.heals.healed, learned: false };
+        if (e.heals.attempts > 0) rec.manifest.healing = { attempts: e.heals.attempts, healed: e.heals.healed, learned: false, ...(retakes ? { retakes } : {}) };
         await this.finalize(rec, 'failed', e.steps, e.errors, e.error, stopPreview);
       } else {
         const err = e as { code?: string; hint?: string };

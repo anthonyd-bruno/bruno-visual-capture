@@ -120,6 +120,7 @@ function formatEvent(e: RunEvent, t0: number): string | undefined {
     case 'workflow.step.failed': return `${t}  ✖ ${e.step.label}: ${e.error.message}${e.error.hint ? `\n          ↳ ${e.error.hint}` : ''}${e.continued ? ' (continuing)' : ''}`;
     case 'artifact.created': return `${t}  ⬇ ${e.artifact.relativePath} (${e.artifact.width ?? '?'}×${e.artifact.height ?? '?'})`;
     case 'run.failed': return `${t}  FAILED: ${e.error.message}${e.error.hint ? `\n          ↳ ${e.error.hint}` : ''}`;
+    case 'recording.retake': return `${t}  RETAKE ${e.take}: ${e.reason} — re-running the healed steps from the start so the fix is not recorded`;
     case 'run.cancelled': return `${t}  CANCELLED`;
     case 'run.completed': return `${t}  ${e.status.toUpperCase()}`;
     default: return undefined;

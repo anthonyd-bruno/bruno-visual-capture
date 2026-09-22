@@ -1,6 +1,6 @@
-import { appendFile, mkdir, rename, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Artifact, RunManifest } from '@bruno-capture/shared';
+import type { Artifact, ArtifactKind, RunManifest } from '@bruno-capture/shared';
 import { writeJsonFile } from '../json-file.js';
 
 export function slugify(s: string): string {
@@ -87,6 +87,18 @@ export class RunArtifactStore {
   }
 
   list(): Artifact[] { return [...this.artifacts]; }
+
+  /** Drop every artifact of one kind — files and entries — e.g. the stills of a take that is being re-recorded. */
+  async discard(kind: ArtifactKind): Promise<number> {
+    const dropped = this.artifacts.filter((a) => a.kind === kind);
+    for (const a of dropped) {
+      const file = path.join(this.runDir, a.relativePath);
+      await rm(file, { force: true }).catch(() => undefined);
+      this.used.delete(file);
+    }
+    this.artifacts.splice(0, this.artifacts.length, ...this.artifacts.filter((a) => a.kind !== kind));
+    return dropped.length;
+  }
 
   async writeSnapshot(yamlText: string): Promise<void> { await writeFile(this.snapshotFile, yamlText, 'utf8'); }
   async writeManifest(manifest: RunManifest): Promise<void> { await writeJsonFile(this.manifestFile, manifest); }
