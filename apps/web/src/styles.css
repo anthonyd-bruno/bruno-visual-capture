@@ -26,7 +26,8 @@ button:disabled { opacity: .5; cursor: default; }
 .steps li { list-style: none; padding: 4px 0; display: flex; gap: 8px; } .steps ul { padding: 0; margin: 0; }
 .step-done { color: var(--ok); } .step-failed { color: var(--bad); } .step-active { font-weight: 600; } .step-healed { color: var(--warn, #b7791f); }
 .preview { width: 100%; max-width: 900px; border: 1px solid var(--border); border-radius: 6px; background: #222; aspect-ratio: 16/10; object-fit: contain; }
-.artifact img, .artifact video { width: 100%; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+.artifact img, .artifact video, .artifact canvas { width: 100%; border: 1px solid var(--border); border-radius: 6px; background: #fff; display: block; }
+.player-bar { margin-top: 8px; gap: 6px; } .player-bar button { padding: 5px 10px; } .player-bar input[type=range] { width: auto; padding: 0; border: 0; background: transparent; accent-color: var(--accent); }
 .error { background: #fef2f2; border: 1px solid #fecaca; color: var(--bad); padding: 10px 12px; border-radius: 6px; white-space: pre-wrap; }
 table { width: 100%; border-collapse: collapse; } th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; } th { color: var(--muted); font-weight: 500; }
 code { font-family: var(--mono); font-size: 12px; background: var(--bg); padding: 1px 4px; border-radius: 4px; }

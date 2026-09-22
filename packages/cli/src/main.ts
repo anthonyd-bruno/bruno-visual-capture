@@ -1,8 +1,10 @@
 import { parseArgs } from 'node:util';
+import { execFile } from 'node:child_process';
+import path from 'node:path';
 import { appPaths, checkSystemStatus, RunConflictError, RunValidationError, SettingsStore } from '@bruno-capture/core';
 import { createContext, startServer } from '@bruno-capture/server';
 import { CaptureHelper } from '@bruno-capture/automation';
-import type { ComponentStatus, OutputType, RunEvent } from '@bruno-capture/shared';
+import type { ComponentStatus, OutputType, RunEvent, RunManifest } from '@bruno-capture/shared';
 
 const USAGE = `bru-capture — visual capture automation for the Bruno desktop app
 
@@ -14,11 +16,11 @@ Usage:
   bru-capture workflow add <yaml>  import a workflow file (kept in place)
   bru-capture helper request       ask macOS for Screen Recording permission (shows the system prompt)
   bru-capture run <workflowId> --output <screenshots|video|gif> [--preset <id>] [--param k=v ...]
-                                   [--relaunch] run a workflow and stream progress
-  bru-capture compose "<prompt>" [--output <auto|screenshots|video|gif>] [--save] [--run]
+                                   [--relaunch] [--play] run a workflow and stream progress
+  bru-capture compose "<prompt>" [--output <auto|screenshots|video|gif>] [--save] [--run] [--play]
                                    ask the AI planner to reuse or compose a workflow for the prompt;
                                    --save writes it to the generated workflows directory, --run also runs it
-  bru-capture refine <runId> "<feedback>" [--run]
+  bru-capture refine <runId> "<feedback>" [--run] [--play]
                                    adjust that run's workflow/settings from feedback (e.g. "don't obscure the
                                    token entered"); prints the step diff; --run saves it and regenerates
 
@@ -27,6 +29,7 @@ Options:
   --no-open       do not open the browser
   --json          machine-readable output where supported
   --relaunch      allow quitting a running Bruno to relaunch it under automation (user-profile mode)
+  --play          when the run finishes, open the GIF/MP4 in the default player (screenshots: the run folder)
 `;
 
 const STATE_ICON: Record<ComponentStatus['state'], string> = {
@@ -123,7 +126,17 @@ function formatEvent(e: RunEvent, t0: number): string | undefined {
   }
 }
 
-async function run(workflowId: string | undefined, v: { output?: string; preset?: string; param?: string[]; relaunch?: boolean; json?: boolean }): Promise<number> {
+/** `--play`: hand the finished recording to the default macOS player (QuickTime / Preview); screenshot runs open the folder. */
+async function playArtifacts(manifest: RunManifest, runDir: string, quiet: boolean): Promise<void> {
+  const media = manifest.artifacts.filter((a) => a.kind === 'video' || a.kind === 'gif');
+  const targets = media.length ? media.map((a) => path.join(runDir, a.relativePath)) : [runDir];
+  for (const t of targets) {
+    await new Promise<void>((res, rej) => execFile('/usr/bin/open', [t], (e) => (e ? rej(e) : res())))
+      .then(() => { if (!quiet) console.log(`opened ${t}`); }, (e: Error) => { if (!quiet) console.error(`could not open ${t}: ${e.message}`); });
+  }
+}
+
+async function run(workflowId: string | undefined, v: { output?: string; preset?: string; param?: string[]; relaunch?: boolean; json?: boolean; play?: boolean }): Promise<number> {
   if (!workflowId) { console.error('usage: bru-capture run <workflowId> --output <screenshots|video|gif>'); return 2; }
   if (!v.output) { console.error('--output is required'); return 2; }
   const parameters: Record<string, string> = {};
@@ -142,7 +155,9 @@ async function run(workflowId: string | undefined, v: { output?: string; preset?
     }
     process.off('SIGINT', onSigint);
     const final = ctx.engine.get(manifest.runId)!.manifest;
-    if (!v.json) console.log(`\n${final.status}  ${final.artifacts.length} artifact(s) in ${ctx.engine.get(manifest.runId)!.artifacts.runDir}`);
+    const runDir = ctx.engine.get(manifest.runId)!.artifacts.runDir;
+    if (!v.json) console.log(`\n${final.status}  ${final.artifacts.length} artifact(s) in ${runDir}`);
+    if (v.play && final.status !== 'cancelled') await playArtifacts(final, runDir, Boolean(v.json));
     return final.status === 'completed' ? 0 : final.status === 'completed_with_errors' ? 3 : 1;
   } catch (e) {
     if (e instanceof RunValidationError) { console.error(`invalid run: ${e.message}`); for (const d of e.details ?? []) console.error(`  ${d.path}: ${d.message}`); return 2; }
@@ -151,7 +166,7 @@ async function run(workflowId: string | undefined, v: { output?: string; preset?
   } finally { await ctx.shutdown(); }
 }
 
-async function compose(prompt: string | undefined, v: { output?: string; save?: boolean; run?: boolean; preset?: string; json?: boolean; relaunch?: boolean }): Promise<number> {
+async function compose(prompt: string | undefined, v: { output?: string; save?: boolean; run?: boolean; preset?: string; json?: boolean; relaunch?: boolean; play?: boolean }): Promise<number> {
   if (!prompt) { console.error('usage: bru-capture compose "<prompt>" [--output auto|screenshots|video|gif] [--save] [--run]'); return 2; }
   const ctx = await createContext({ log: (m) => { if (!v.json) console.log('  ·', m); } });
   try {
@@ -171,7 +186,7 @@ async function compose(prompt: string | undefined, v: { output?: string; save?: 
       const p = r.validated;
       if (v.json) console.log(JSON.stringify({ kind: 'reuse', plan: p.plan, parameters: p.parameters, attribution: outcome.attribution }, null, 2));
       else console.log(`reuse ${p.workflow.id} → ${p.plan.output} (${p.preset.id}) confidence ${r.confidence.toFixed(2)} [${outcome.attribution.provider} · ${outcome.attribution.model}]\n  ${r.rationale}`);
-      if (v.run) return run(p.workflow.id, { output: p.plan.output, preset: p.preset.id, param: Object.entries(p.parameters).map(([k, x]) => `${k}=${String(x)}`), relaunch: v.relaunch, json: v.json });
+      if (v.run) return run(p.workflow.id, { output: p.plan.output, preset: p.preset.id, param: Object.entries(p.parameters).map(([k, x]) => `${k}=${String(x)}`), relaunch: v.relaunch, json: v.json, play: v.play });
       return 0;
     }
     const { definitionToYaml } = await import('@bruno-capture/core');
@@ -188,14 +203,14 @@ async function compose(prompt: string | undefined, v: { output?: string; save?: 
       if (!v.json) console.log(`saved as ${saved.id} → ${saved.file}`);
       if (v.run) {
         await ctx.shutdown();
-        return run(saved.id, { output: r.output, preset: r.preset.id, relaunch: v.relaunch, json: v.json });
+        return run(saved.id, { output: r.output, preset: r.preset.id, relaunch: v.relaunch, json: v.json, play: v.play });
       }
     }
     return 0;
   } finally { await ctx.shutdown().catch(() => undefined); }
 }
 
-async function refine(runId: string | undefined, feedback: string | undefined, v: { run?: boolean; json?: boolean; relaunch?: boolean }): Promise<number> {
+async function refine(runId: string | undefined, feedback: string | undefined, v: { run?: boolean; json?: boolean; relaunch?: boolean; play?: boolean }): Promise<number> {
   if (!runId || !feedback) { console.error('usage: bru-capture refine <runId> "<feedback>" [--run]'); return 2; }
   const ctx = await createContext({ log: (m) => { if (!v.json) console.log('  ·', m); } });
   try {
@@ -227,7 +242,9 @@ async function refine(runId: string | undefined, feedback: string | undefined, v
       if (line) console.log(line);
     }
     const final = ctx.engine.get(applied.run.runId)!.manifest;
-    if (!v.json) console.log(`\n${final.status}  ${final.artifacts.length} artifact(s) in ${ctx.engine.get(applied.run.runId)!.artifacts.runDir}`);
+    const runDir = ctx.engine.get(applied.run.runId)!.artifacts.runDir;
+    if (!v.json) console.log(`\n${final.status}  ${final.artifacts.length} artifact(s) in ${runDir}`);
+    if (v.play && final.status !== 'cancelled') await playArtifacts(final, runDir, Boolean(v.json));
     return final.status === 'completed' ? 0 : final.status === 'completed_with_errors' ? 3 : 1;
   } catch (e) {
     if (e instanceof RunValidationError) { console.error(`✖ ${e.message}`); return 2; }
@@ -251,6 +268,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       relaunch: { type: 'boolean', default: false },
       save: { type: 'boolean', default: false },
       run: { type: 'boolean', default: false },
+      play: { type: 'boolean', default: false },
     },
   });
   if (values.help) { console.log(USAGE); return 0; }

@@ -26,7 +26,18 @@ node packages/cli/bin/bru-capture.mjs doctor
 node packages/cli/bin/bru-capture.mjs workflows list
 node packages/cli/bin/bru-capture.mjs workflows validate
 node packages/cli/bin/bru-capture.mjs run runner-collection-run --output screenshots --preset docs-screenshot
+node packages/cli/bin/bru-capture.mjs run request-auth-bearer --output gif --play   # opens the GIF when done
 ```
+
+### Playing a GIF or video
+
+A finished video/GIF run shows the recording first on its run page, in a player: MP4s use the browser's own
+controls (the backend serves byte ranges, so seeking works and Safari plays them); GIFs get play/pause, restart,
+frame stepping, a scrubber and a speed control (decoded in the browser with WebCodecs; Firefox falls back to the
+looping image plus Restart). The Library has a **▶ Play** button on every video/GIF run that opens the run and
+starts playback. **Open File** hands the file to QuickTime/Preview. From the CLI, `--play` on `run`, `compose --run`
+and `refine --run` opens the recording in the default player as soon as the run finishes (screenshot runs open the
+run folder).
 
 ## Any prompt → a workflow (Phase 9)
 

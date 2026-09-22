@@ -12,7 +12,22 @@ import { HttpError, validationError } from '../errors.js';
 
 const MIME: Record<string, string> = { '.png': 'image/png', '.gif': 'image/gif', '.mp4': 'video/mp4', '.json': 'application/json', '.yaml': 'text/yaml', '.yml': 'text/yaml', '.log': 'text/plain', '.jpg': 'image/jpeg' };
 
-async function sendRunFile(reply: FastifyReply, runDir: string, relativePath: string, download: boolean): Promise<FastifyReply> {
+/** `Range: bytes=a-b` → [a, b] inclusive, or `undefined` when absent/unparseable; `null` when unsatisfiable (RFC 9110 §14). */
+function parseRange(header: string | undefined, size: number): [number, number] | null | undefined {
+  if (!header) return undefined;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m || (m[1] === '' && m[2] === '')) return undefined;
+  if (size === 0) return null;
+  const start = m[1] === '' ? Math.max(0, size - Number(m[2])) : Number(m[1]); // `-N` = last N bytes
+  const end = m[1] !== '' && m[2] !== '' ? Math.min(Number(m[2]), size - 1) : size - 1;
+  return start >= size || start > end ? null : [start, end];
+}
+
+/**
+ * Streams one file from the run directory. Honours `Range` so the browser can play and seek MP4s (Safari refuses to
+ * play a `<video>` at all from a server that does not answer 206) and so the GIF player can stream frames.
+ */
+async function sendRunFile(reply: FastifyReply, runDir: string, relativePath: string, download: boolean, range?: string): Promise<FastifyReply> {
   if (relativePath.split('/').some((seg) => seg === '..' || seg === '')) throw new HttpError(400, 'bad_path', 'Invalid path');
   const root = await realpath(runDir).catch(() => undefined);
   const file = await realpath(path.join(runDir, relativePath)).catch(() => undefined);
@@ -21,9 +36,17 @@ async function sendRunFile(reply: FastifyReply, runDir: string, relativePath: st
   if (!info.isFile()) throw new HttpError(404, 'file_not_found', 'No such file in this run');
   const ext = path.extname(file).toLowerCase();
   reply.header('content-type', MIME[ext] ?? 'application/octet-stream');
-  reply.header('content-length', info.size);
+  reply.header('accept-ranges', 'bytes');
   reply.header('cache-control', 'private, max-age=31536000, immutable');
   if (download) reply.header('content-disposition', `attachment; filename="${path.basename(file)}"`);
+  const r = parseRange(range, info.size);
+  if (r === null) { reply.header('content-range', `bytes */${info.size}`); return reply.code(416).send(); }
+  if (r) {
+    const [start, end] = r;
+    reply.code(206).header('content-range', `bytes ${start}-${end}/${info.size}`).header('content-length', end - start + 1);
+    return reply.send(createReadStream(file, { start, end }));
+  }
+  reply.header('content-length', info.size);
   return reply.send(createReadStream(file));
 }
 
@@ -154,7 +177,7 @@ export function registerRunRoutes(app: FastifyInstance, ctx: ServerContext): voi
   app.get<{ Params: { id: string; '*': string }; Querystring: { download?: string } }>('/api/runs/:id/files/*', async (req, reply) => {
     const rec = ctx.engine.get(req.params.id);
     if (!rec) throw new HttpError(404, 'run_not_found', `No run ${req.params.id}`);
-    return sendRunFile(reply, rec.artifacts.runDir, req.params['*'], req.query.download === '1');
+    return sendRunFile(reply, rec.artifacts.runDir, req.params['*'], req.query.download === '1', req.headers.range);
   });
 
   /** PRD §84: artifact ids are `<runId>:<fileName>`. */

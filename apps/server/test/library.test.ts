@@ -30,6 +30,37 @@ beforeAll(async () => {
 });
 afterAll(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
 
+describe('run files honour Range so <video> can play and seek', () => {
+  const url = `/api/runs/${RUN}/files/screenshots/runner-open.png`;
+  it('advertises byte ranges on a full response', async () => {
+    const r = await app.inject({ method: 'GET', url, headers: H });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['accept-ranges']).toBe('bytes');
+    expect(Number(r.headers['content-length'])).toBe(PNG_1x1.length);
+    expect(r.rawPayload.equals(PNG_1x1)).toBe(true);
+  });
+  it('serves a partial range as 206 with the exact bytes', async () => {
+    const r = await app.inject({ method: 'GET', url, headers: { ...H, range: 'bytes=4-11' } });
+    expect(r.statusCode).toBe(206);
+    expect(r.headers['content-range']).toBe(`bytes 4-11/${PNG_1x1.length}`);
+    expect(Number(r.headers['content-length'])).toBe(8);
+    expect(r.rawPayload.equals(PNG_1x1.subarray(4, 12))).toBe(true);
+  });
+  it('clamps an open-ended range and supports suffix ranges', async () => {
+    const open = await app.inject({ method: 'GET', url, headers: { ...H, range: 'bytes=10-' } });
+    expect(open.statusCode).toBe(206);
+    expect(open.rawPayload.equals(PNG_1x1.subarray(10))).toBe(true);
+    const suffix = await app.inject({ method: 'GET', url, headers: { ...H, range: 'bytes=-5' } });
+    expect(suffix.headers['content-range']).toBe(`bytes ${PNG_1x1.length - 5}-${PNG_1x1.length - 1}/${PNG_1x1.length}`);
+    expect(suffix.rawPayload.equals(PNG_1x1.subarray(-5))).toBe(true);
+  });
+  it('answers 416 for an unsatisfiable range', async () => {
+    const r = await app.inject({ method: 'GET', url, headers: { ...H, range: `bytes=${PNG_1x1.length}-` } });
+    expect(r.statusCode).toBe(416);
+    expect(r.headers['content-range']).toBe(`bytes */${PNG_1x1.length}`);
+  });
+});
+
 describe('library from disk (PRD §98) and archives (§74)', () => {
   it('indexes manifests at startup', async () => {
     const r = await app.inject({ method: 'GET', url: '/api/runs', headers: H });

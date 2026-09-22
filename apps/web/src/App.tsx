@@ -21,7 +21,7 @@ export function App() {
     case 'workflows': page = <WorkflowsPage />; break;
     case 'library': page = <LibraryPage />; break;
     case 'settings': page = <SettingsPage />; break;
-    case 'run': page = arg ? <RunPage key={arg} runId={arg} /> : <LibraryPage />; break;
+    case 'run': page = arg ? <RunPage key={arg} runId={arg} play={params.get('play') === '1'} /> : <LibraryPage />; break;
     default: {
       let prefillParams: Record<string, string> | undefined;
       try { const raw = params.get('params'); if (raw) prefillParams = Object.fromEntries(Object.entries(JSON.parse(raw) as Record<string, unknown>).map(([k, v]) => [k, String(v)])); } catch { prefillParams = undefined; }

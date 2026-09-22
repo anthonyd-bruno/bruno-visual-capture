@@ -25,14 +25,16 @@ export function LibraryPage() {
       {error && <div className="error">{error}</div>}
       <div className="grid">
         {shown.map((r) => {
-          const thumb = r.artifacts.find((a) => a.kind === 'screenshot' || a.kind === 'gif');
+          const thumb = r.artifacts.find((a) => a.kind === 'screenshot') ?? r.artifacts.find((a) => a.kind === 'gif');
+          const recording = r.artifacts.find((a) => a.kind === 'video' || a.kind === 'gif');
           return (
             <div key={r.runId} className="panel artifact">
               {thumb ? <img src={api.fileUrl(r.runId, thumb.relativePath)} alt="" /> : <div className="preview" style={{ aspectRatio: '16/10' }} />}
               <div style={{ marginTop: 8 }}><strong>{r.workflow.name}</strong> <span className="badge">{r.capture.output}</span> <span className="badge">{r.status}</span></div>
               <div className="muted">{r.workflow.feature} · {new Date(r.createdAt).toLocaleString()} · {r.artifacts.length} artifact(s)</div>
               <div className="row" style={{ marginTop: 8 }}>
-                <a href={`#/run/${r.runId}`}><button className="primary">Open</button></a>
+                {recording && <a href={`#/run/${r.runId}?play=1`}><button className="primary">▶ Play {recording.kind === 'video' ? 'MP4' : 'GIF'}</button></a>}
+                <a href={`#/run/${r.runId}`}><button className={recording ? '' : 'primary'}>Open</button></a>
                 <button onClick={() => void regenerateAndGo(r.runId, 'exact', setError)}>Regenerate Exact</button>
                 <button onClick={() => void regenerateAndGo(r.runId, 'latest', setError)}>Regenerate Latest</button>
                 <button onClick={() => { if (confirm('Delete this capture and all its files?')) api.deleteRun(r.runId).then(load).catch((e) => alert(e.message)); }}>Delete</button>

@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import type { Artifact, RunEvent, RunManifest, StepSummary } from '@bruno-capture/shared';
 import { api, regenerateAndGo, subscribeRun } from '../api';
 import { RefinePanel } from '../components/RefinePanel';
+import { MediaPlayer } from '../components/MediaPlayer';
 
 interface StepState { step: StepSummary; status: 'active' | 'done' | 'failed' | 'healing' | 'healed'; message?: string; inserted?: boolean }
 
-export function ArtifactCard({ runId, a, selected, onSelect, onError }: { runId: string; a: Artifact; selected?: boolean; onSelect?: (v: boolean) => void; onError: (m: string) => void }) {
+export function ArtifactCard({ runId, a, selected, onSelect, onError, autoplay }: { runId: string; a: Artifact; selected?: boolean; onSelect?: (v: boolean) => void; onError: (m: string) => void; autoplay?: boolean }) {
   const url = api.fileUrl(runId, a.relativePath);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (autoplay) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [autoplay]);
   const copy = async () => { try { const blob = await (await fetch(url)).blob(); await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]); } catch (e) { onError(`Copy failed: ${(e as Error).message}`); } };
   return (
-    <div className="panel artifact">
-      {a.kind === 'video' ? <video controls src={url} /> : <img src={url} alt={a.fileName} />}
+    <div className="panel artifact" ref={ref} id={`artifact-${a.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`}>
+      {a.kind === 'screenshot' ? <img src={url} alt={a.fileName} /> : <MediaPlayer kind={a.kind} src={url} name={a.fileName} autoplay={autoplay} durationMs={a.durationMs} />}
       <div className="row" style={{ justifyContent: 'space-between', marginTop: 8 }}>
         <span className="mono">
           {onSelect && <input type="checkbox" style={{ width: 'auto', marginRight: 8 }} checked={Boolean(selected)} onChange={(e) => onSelect(e.target.checked)} />}
@@ -52,7 +55,10 @@ function RunDetails({ run }: { run: RunManifest }) {
   return <table><tbody>{rows.filter(([, v]) => v).map(([k, v]) => <tr key={k}><th style={{ width: 140 }}>{k}</th><td className={k === 'Source' || k === 'Bruno' ? 'mono' : ''}>{v}</td></tr>)}</tbody></table>;
 }
 
-export function RunPage({ runId }: { runId: string }) {
+/** Recordings first: the GIF/MP4 is what a video/gif run is for, so it should not hide below the stills. */
+const byKind = (a: Artifact, b: Artifact) => Number(a.kind === 'screenshot') - Number(b.kind === 'screenshot');
+
+export function RunPage({ runId, play }: { runId: string; play?: boolean }) {
   const [run, setRun] = useState<RunManifest>();
   const [steps, setSteps] = useState<StepState[]>([]);
   const [total, setTotal] = useState(0);
@@ -134,7 +140,7 @@ export function RunPage({ runId }: { runId: string }) {
                   <span className="muted">Tick screenshots to download a subset.</span>
                 </div>
               )}
-              <div className="grid" style={{ gridTemplateColumns: '1fr' }}>{artifacts.map((a) => <ArtifactCard key={a.id} runId={runId} a={a} onError={setUiError} selected={selected[a.id]} onSelect={artifacts.length > 1 ? (v) => setSelected({ ...selected, [a.id]: v }) : undefined} />)}</div>
+              <div className="grid" style={{ gridTemplateColumns: '1fr' }}>{[...artifacts].sort(byKind).map((a, i) => <ArtifactCard key={a.id} runId={runId} a={a} onError={setUiError} selected={selected[a.id]} onSelect={artifacts.length > 1 ? (v) => setSelected({ ...selected, [a.id]: v }) : undefined} autoplay={Boolean(play) && a.kind !== 'screenshot' && i === 0} />)}</div>
             </>
           )}
         </div>
